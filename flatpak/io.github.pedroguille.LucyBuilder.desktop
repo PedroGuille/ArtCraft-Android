@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Lucy Builder
+GenericName=Android APK Builder
+GenericName[es]=Constructor de APK Android
+Comment=Download Craft sources and compile Android apps locally
+Comment[es]=Descargá fuentes de Craft y compilá aplicaciones Android en tu PC
+Exec=lucy-builder
+Icon=io.github.pedroguille.LucyBuilder
+Terminal=false
+Categories=Development;Building;GTK;
+Keywords=Android;APK;Lucy;Craft;Builder;
+StartupNotify=true
+DBusActivatable=false

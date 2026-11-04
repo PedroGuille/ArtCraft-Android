@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#252925">
+  <title>Lucy</title>
+  <link rel="stylesheet" href="shell.css">
+  <script src="shell.js" defer></script>
+</head>
+<body class="dark">
+  <header id="document-bar" class="document-bar hidden" aria-label="Documentos abiertos">
+    <button id="tabs-home" class="tabs-home" aria-label="Home" title="Home">⌂</button>
+    <button id="tabs-open" class="tabs-open" title="Abrir un archivo">Abrir un archivo</button>
+    <button id="tabs-split" class="tabs-open tabs-split" aria-pressed="false" aria-controls="editor-stage">Dividir</button>
+    <div id="document-tabs" class="document-tabs" role="tablist" aria-label="Documentos abiertos"></div>
+    <button id="tabs-add" class="tabs-add" aria-label="Menú de archivos y edición" aria-haspopup="menu" aria-expanded="false" aria-controls="new-menu" title="Menú de archivos y edición">⋮</button>
+    <div id="new-menu" class="new-menu hidden" role="menu">
+      <div class="menu-document"><strong id="editor-name"></strong><span id="editor-type"></span></div>
+      <button id="editor-save" role="menuitem" data-editor-action>Guardar copia</button>
+      <button id="editor-undo" role="menuitem" data-editor-action><span>Deshacer</span><kbd>Ctrl+Z</kbd></button>
+      <button id="editor-redo" role="menuitem" data-editor-action><span>Rehacer</span><kbd>Ctrl+Y</kbd></button>
+      <button id="editor-back" role="menuitem" data-editor-action><span>Volver al editor</span><kbd>Esc</kbd></button>
+      <button id="editor-paste" role="menuitem" data-editor-action>Pegar</button>
+      <button id="editor-keyboard" role="menuitem" data-editor-action>Mostrar teclado</button>
+      <button id="editor-readonly" class="hidden" role="menuitemcheckbox" aria-checked="false">Solo lectura</button>
+      <button id="editor-dark" role="menuitemcheckbox" aria-checked="false">Modo oscuro</button>
+      <button id="editor-fit" role="menuitem" data-editor-action>Escala de interfaz · 100%</button>
+      <div class="menu-divider"></div>
+      <button role="menuitem" data-new="wordcraft"><span class="tab-icon wordcraft">W</span><span>Documento</span></button>
+      <button role="menuitem" data-new="gridcraft"><span class="tab-icon gridcraft">X</span><span>Hoja de cálculo</span></button>
+      <button role="menuitem" data-new="deckcraft"><span class="tab-icon deckcraft">P</span><span>Presentación</span></button>
+      <button role="menuitem" data-new="pdfcraft"><span class="tab-icon pdfcraft">PDF</span><span>PDF</span></button>
+      <div class="menu-divider"></div>
+      <button id="show-recoveries" role="menuitem">Copias guardadas</button>
+      <button id="show-licenses" role="menuitem">Licencias y créditos de código abierto</button>
+      <button id="editor-home" role="menuitem">Inicio</button>
+    </div>
+  </header>
+  <main id="workspace" class="workspace" aria-label="Home">
+    <div class="home-actions">
+      <button id="open-top" class="button button-light">Abrir archivos</button>
+      <button id="create-file" class="button button-green" aria-haspopup="dialog" aria-controls="create-dialog">Crear archivo</button>
+    </div>
+  </main>
+  <dialog id="create-dialog" aria-labelledby="create-title">
+    <div class="dialog-header"><h2 id="create-title">Crear archivo</h2><button class="dialog-close" data-close="create-dialog" aria-label="Cerrar">×</button></div>
+    <div class="create-options">
+      <button data-new="wordcraft"><span class="tab-icon wordcraft" aria-hidden="true">W</span><span>Documento</span></button>
+      <button data-new="gridcraft"><span class="tab-icon gridcraft" aria-hidden="true">X</span><span>Hoja de cálculo</span></button>
+      <button data-new="deckcraft"><span class="tab-icon deckcraft" aria-hidden="true">P</span><span>Presentación</span></button>
+      <button data-new="pdfcraft"><span class="tab-icon pdfcraft" aria-hidden="true">PDF</span><span>PDF</span></button>
+    </div>
+  </dialog>
+  <section id="editor" class="editor hidden" aria-label="Editor de documentos">
+    <div id="editor-stage" class="editor-stage">
+      <div id="empty-pane-0" class="split-empty hidden" role="region" tabindex="0"><p>Elige una pestaña de arriba o abre otro archivo.</p><button class="button button-light">Abrir un archivo</button></div>
+      <div id="empty-pane-1" class="split-empty hidden" role="region" tabindex="0"><p>Elige una pestaña de arriba o abre otro archivo.</p><button class="button button-light">Abrir un archivo</button></div>
+      <div id="split-divider" class="split-divider hidden" role="separator" aria-orientation="vertical"></div>
+      <div id="pane-focus" class="pane-focus hidden" aria-hidden="true"></div>
+    </div>
+    <div id="editor-loading" class="editor-loading"><div class="spinner"></div><strong id="loading-label">Abriendo el editor…</strong><p>El primer inicio puede demorar unos momentos.</p><button id="loading-cancel" class="text-button">Volver al inicio</button></div>
+  </section>
+  <dialog id="confirm" aria-labelledby="confirm-title" aria-describedby="confirm-body"><h2 id="confirm-title"></h2><p id="confirm-body"></p><div class="dialog-actions"><button class="button button-light" id="keep-editing">Seguir editando</button><button class="button button-green" id="close-editor">Cerrar pestaña</button></div></dialog>
+  <dialog id="recoveries-dialog" aria-labelledby="recoveries-title"><div class="dialog-header"><h2 id="recoveries-title">Copias guardadas</h2><button class="dialog-close" data-close="recoveries-dialog" aria-label="Cerrar">×</button></div><div id="recovery-list" class="recovery-list"></div></dialog>
+  <dialog id="licenses-dialog"><pre id="license-content"></pre><div class="dialog-actions"><button id="licenses-close" class="button button-green">Listo</button></div></dialog>
+  <div id="toast" role="status" class="toast hidden"></div>
+  <input id="browser-open" type="file" multiple hidden>
+</body>
+</html>

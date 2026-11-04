@@ -1,0 +1,4 @@
+Esta carpeta guarda tu clave privada de firma.
+El programa crea preview.keystore en la primera compilación si no indicas otra clave.
+Conserva la misma clave para actualizar la app instalada. Haz una copia privada.
+No subas esta carpeta a GitHub ni la compartas con los archivos del constructor.

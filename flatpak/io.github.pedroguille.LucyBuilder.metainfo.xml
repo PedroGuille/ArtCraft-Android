@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.pedroguille.LucyBuilder</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Lucy Builder</name>
+  <summary>Build Craft Android apps and compose Lucy locally</summary>
+  <summary xml:lang="es">Compilá aplicaciones Craft para Android y componé Lucy</summary>
+  <developer id="io.github.pedroguille"><name>Lucy contributors</name></developer>
+  <description>
+    <p>A local source downloader and Android APK builder with a native GTK interface.</p>
+    <ul>
+      <li>Select individual Craft applications to download or build.</li>
+      <li>Compose Lucy with any combination of one to four office editors.</li>
+      <li>Reuse compiler caches and keep a separate signing identity per app.</li>
+      <li>View progress, logs, source revisions and completed APKs.</li>
+    </ul>
+    <p>The development runtime supplies Linux build tools. Android and Rust tools are downloaded on first build. Android SDK license acceptance is required. Some applications use web adaptations; applications without a compatible recipe offer source downloads only.</p>
+  </description>
+  <launchable type="desktop-id">io.github.pedroguille.LucyBuilder.desktop</launchable>
+  <url type="homepage">https://github.com/storytold/craft-launcher</url>
+  <content_rating type="oars-1.1"/>
+  <releases><release version="2.1.1" date="2026-11-03"><description><p>Add per-tab WordCraft read-only mode, enable dark mode by default and dismiss the Lucy menu on document interaction.</p></description></release><release version="2.1.0" date="2026-11-02"><description><p>Choose frozen source versions, latest published releases or development main. Restore upstream language catalogs and language pickers with a separate Spanish profile.</p></description></release><release version="2.0.4" date="2026-11-02"><description><p>Update DeckCraft 0.15.0 integration for the new File pages while retaining the compact Spanish Lucy interface.</p></description></release><release version="2.0.3" date="2026-11-02"><description><p>Update the native CADCraft tablet adapter for main 0.16.0 and add its tested revision to verified builds. Preserve the Flatpak ZIP timestamp fix and office editor caches.</p></description></release><release version="2.0.2" date="2026-11-02"><description><p>Handle Flatpak epoch timestamps when exporting APK sources. Preserve compiled editor caches and signing identities.</p></description></release><release version="2.0.1" date="2026-11-02"><description><p>Update WordCraft, GridCraft and PDFcraft adapters for current main. Check source integration before downloading build tools.</p></description></release><release version="2.0.0" date="2026-11-01"><description><p>Native Linux GUI, individual Craft builds and selectable Lucy engines.</p></description></release></releases>
+</component>

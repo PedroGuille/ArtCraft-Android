@@ -1,0 +1,6 @@
+/app/src/main/assets/engines/
+/build/
+/.cache/
+/local.properties
+**/*.jks
+/tests/node_modules/

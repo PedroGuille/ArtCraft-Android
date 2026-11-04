@@ -1,0 +1,1411 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 7fce587..9a2e1ae 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -126,8 +126,8 @@ debug = "line-tables-only"
+ 
+ [profile.release]
+ opt-level = 3
+-lto = "thin"
+-codegen-units = 16
++lto = false
++codegen-units = 1
+ debug = 0
+ 
+ # Required by craft-pdf: the backend rejects writers that failed during unwinding.
+diff --git a/apps/wordcraft-web/index.html b/apps/wordcraft-web/index.html
+index ca6ad46..80f385d 100644
+--- a/apps/wordcraft-web/index.html
++++ b/apps/wordcraft-web/index.html
+@@ -1,5 +1,5 @@
+ <!DOCTYPE html>
+-<html lang="en">
++<html lang="es">
+ <head>
+   <meta charset="utf-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+@@ -15,6 +15,6 @@
+ </head>
+ <body>
+   <canvas id="wordcraft_canvas"></canvas>
+-  <div id="wordcraft_loading">Loading WordCraft&hellip;</div>
++  <div id="wordcraft_loading">Cargando WordCraft&hellip;</div>
+ </body>
+ </html>
+diff --git a/crates/engine/src/session/run.rs b/crates/engine/src/session/run.rs
+index 524dcac..e03b55e 100644
+--- a/crates/engine/src/session/run.rs
++++ b/crates/engine/src/session/run.rs
+@@ -71,6 +71,10 @@ impl Session {
+         let ime_text_join = self.ime_text_join.take();
+         let reg = self.registry.clone();
+         let Some(spec) = reg.get(id) else { return Err(CmdError::Unknown(id.to_string())) };
++        if self.view.read_mode && (spec.mutates || matches!(id, "edit.undo" | "edit.redo" | "edit.undoTo")) {
++            return Err(CmdError::Disabled("Document is read only.".into()));
++        }
++
+         let join = join
+             || (equation_join && matches!(id, "equation.type" | "equation.backspace"))
+             || (id == "text.insert" && ime_text_join.as_ref().is_some_and(|sel| sel == &self.sel));
+@@ -443,3 +447,22 @@ impl Session {
+         result
+     }
+ }
++
++#[cfg(test)]
++mod folio_reading_tests {
++    use super::*;
++    #[test]
++    fn reading_blocks_edits_and_undo_without_protecting_the_file() {
++        let mut session = Session::new(Document::new());
++        assert!(session.run("text.insert", &serde_json::json!({"text":"Original"})).is_ok());
++        let original = session.doc.clone();
++        session.view.read_mode = true;
++        for (id, params) in [("text.insert", serde_json::json!({"text":"Changed"})), ("edit.undo", serde_json::json!({})), ("edit.redo", serde_json::json!({}))] {
++            assert!(session.run(id, &params).is_err(), "{id}");
++            assert!(session.doc.same_content(&original));
++        }
++        assert!(session.doc.settings.protection.is_none());
++        session.view.read_mode = false;
++        assert!(session.run("text.insert", &serde_json::json!({"text":" editable"})).is_ok());
++    }
++}
+diff --git a/crates/ui-egui/build.rs b/crates/ui-egui/build.rs
+index ae1d517..1b4e004 100644
+--- a/crates/ui-egui/build.rs
++++ b/crates/ui-egui/build.rs
+@@ -1,41 +1,10 @@
+-//! Bake the contributor credits into the binary as static Rust tables, and embed the craft-i18n interface
+-//! catalogs. Nothing is read at run time.
+-//!
+-//! - contributors/contributors.json: commit stats per GitHub username, with a mark for whose people.toml
+-//!   entry is verified.
+-//! - contributors/people.toml: the names people chose for themselves. A name is used only when the
+-//!   JSON says the entry was verified (`people_entry`).
+-//!
+-//! A missing or malformed file gives empty tables (or no names) and a warning.
+-//!
+-//! - `CRAFT_I18N_DIR`, a craft-i18n checkout (storytold/craft-i18n, at the SHA in
+-//!   `craft-i18n.rev`): `craft_i18n.rs` holds `CRAFT_I18N`, one (locale, shared catalog, WordCraft
+-//!   catalog) entry per locale that has a `wordcraft.tsv`. Unset, or not a checkout (a warning),
+-//!   it is empty and the interface is English only; with `CRAFT_I18N_REQUIRED=1` (releases) that
+-//!   is an error instead. Recipe: craft-i18n's `docs/integration.md`.
+-
+ use std::fmt::Write as _;
+-
+-use serde_json::Value;
+-
+ fn main() {
+-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../contributors");
+-    let json = read(&dir.join("contributors.json"), "the About window shows no contributors", |t| {
+-        serde_json::from_str::<Value>(t).map_err(|e| e.to_string())
+-    })
+-    .unwrap_or(Value::Null);
+-    let people = read(&dir.join("people.toml"), "contributors are shown by username only", |t| t.parse::<toml::Table>().map_err(|e| e.to_string()))
+-        .unwrap_or_default();
+-    let out = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap_or_default()).join("credits.rs");
+-    if let Err(e) = std::fs::write(&out, generate(&json, &people)) {
+-        println!("cargo::warning=writing {}: {e}", out.display());
+-    }
+-    let out = out.with_file_name("craft_i18n.rs");
++    let out = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap_or_default()).join("craft_i18n.rs");
+     if let Err(e) = std::fs::write(&out, craft_i18n()) {
+         println!("cargo::error=writing {}: {e}", out.display());
+     }
+ }
+-
+ /// The catalog this app reads in each locale: `locales/<locale>/wordcraft.tsv`.
+ const APP_CATALOG: &str = "wordcraft.tsv";
+ 
+@@ -89,6 +58,9 @@ fn locales(dir: &std::path::Path) -> Result<Vec<Locale>, String> {
+     for entry in list.flatten() {
+         let path = entry.path();
+         let Some(code) = path.file_name().and_then(std::ffi::OsStr::to_str).map(str::to_string) else { continue };
++        if code != "es" {
++            continue;
++        }
+         let app = path.join(APP_CATALOG);
+         if !app.is_file() {
+             continue;
+@@ -106,81 +78,3 @@ fn locales(dir: &std::path::Path) -> Result<Vec<Locale>, String> {
+     out.sort();
+     Ok(out)
+ }
+-
+-fn read<T>(path: &std::path::Path, fallback: &str, parse: impl Fn(&str) -> Result<T, String>) -> Option<T> {
+-    println!("cargo::rerun-if-changed={}", path.display());
+-    let r = std::fs::read_to_string(path).map_err(|e| e.to_string()).and_then(|t| parse(&t));
+-    if let Err(e) = &r {
+-        println!("cargo::warning={}: {e}; {fallback}", path.display());
+-    }
+-    r.ok()
+-}
+-
+-/// A non-empty string field of someone's people.toml entry, as a Rust `Option<&str>` literal.
+-fn name(v: Option<&str>) -> String {
+-    match v.map(str::trim).filter(|s| !s.is_empty()) {
+-        Some(x) => format!("Some({x:?})"),
+-        None => "None".into(),
+-    }
+-}
+-
+-fn s(v: &Value, k: &str) -> String {
+-    format!("{:?}", v.get(k).and_then(Value::as_str).unwrap_or(""))
+-}
+-
+-fn n(v: &Value, k: &str) -> u64 {
+-    v.get(k).and_then(Value::as_u64).unwrap_or(0)
+-}
+-
+-fn rows(json: &Value, k: &str) -> Vec<Value> {
+-    json.get(k).and_then(Value::as_array).cloned().unwrap_or_default()
+-}
+-
+-fn generate(json: &Value, people: &toml::Table) -> String {
+-    let mut o = String::new();
+-    let _ = writeln!(o, "pub static TOTAL_COMMITS: u64 = {};", n(json, "commits"));
+-    let _ = writeln!(o, "pub static CONTRIBUTORS: &[Contributor] = &[");
+-    for c in rows(json, "contributors") {
+-        let login = c.get("login").and_then(Value::as_str).unwrap_or("");
+-        if login.is_empty() {
+-            continue;
+-        }
+-        // Names only from a verified, self-chosen people.toml entry.
+-        let entry = people.get("people").and_then(|p| p.get(login)).filter(|_| c.get("people_entry").and_then(Value::as_bool) == Some(true));
+-        let field = |k: &str| entry.and_then(|e| e.get(k)).and_then(toml::Value::as_str);
+-        let synced = entry.and_then(|e| e.get("sync_github_name")).and_then(toml::Value::as_bool) == Some(true);
+-        let display = field("display_name")
+-            .filter(|s| !s.trim().is_empty())
+-            .or_else(|| if synced { c.get("github_name").and_then(Value::as_str) } else { None });
+-        let _ = writeln!(
+-            o,
+-            "    Contributor {{ login: {login:?}, display_name: {}, real_name: {}, prs: {}, commits: {}, lines_added: {}, lines_deleted: {}, binary_added: {}, binary_deleted: {}, first_commit: {}, last_commit: {} }},",
+-            name(display),
+-            name(field("real_name")),
+-            n(&c, "prs"),
+-            n(&c, "commits"),
+-            n(&c, "lines_added"),
+-            n(&c, "lines_deleted"),
+-            n(&c, "binary_added"),
+-            n(&c, "binary_deleted"),
+-            s(&c, "first_commit"),
+-            s(&c, "last_commit"),
+-        );
+-    }
+-    let _ = writeln!(o, "];");
+-    let _ = writeln!(o, "pub static MODELS: &[Model] = &[");
+-    for m in rows(json, "models") {
+-        let _ = writeln!(
+-            o,
+-            "    Model {{ company: {}, model: {}, version: {}, commits: {}, lines_added: {}, lines_deleted: {} }},",
+-            s(&m, "company"),
+-            s(&m, "model"),
+-            s(&m, "version"),
+-            n(&m, "commits"),
+-            n(&m, "lines_added"),
+-            n(&m, "lines_deleted"),
+-        );
+-    }
+-    let _ = writeln!(o, "];");
+-    o
+-}
+diff --git a/crates/ui-egui/src/app.rs b/crates/ui-egui/src/app.rs
+index cf2670e..927829d 100644
+--- a/crates/ui-egui/src/app.rs
++++ b/crates/ui-egui/src/app.rs
+@@ -219,6 +219,28 @@ impl WordApp {
+ 
+     /// Per-frame logic before layout: control requests, screenshots, shortcuts, file drops.
+     pub fn logic(&mut self, ctx: &egui::Context) {
++        if let Some(dark) = crate::folio::dark() {
++            self.ui.theme = if dark { crate::theme::Appearance::Dark } else { crate::theme::Appearance::Light };
++            self.ui.dark_page = dark;
++            self.session.view.dark_mode = dark;
++        }
++        if let Some(read_only) = crate::folio::read_only() {
++            let key = egui::Id::new("folio.read-only");
++            let previous = ctx.data_mut(|data| data.get_temp::<bool>(key));
++            if previous != Some(read_only) || (read_only && !self.session.view.read_mode) {
++                if read_only || previous == Some(true) {
++                    self.canvas.read_first_visible = None;
++                    let command = if read_only { "view.readMode" } else { "view.printLayout" };
++                    let _ = self.session.run(command, &serde_json::json!({}));
++                }
++                ctx.data_mut(|data| data.insert_temp(key, read_only));
++            }
++            if read_only {
++                use wordcraft_engine::cmd::view::ReadPageColor;
++                self.session.view.read_page_color = if self.session.view.dark_mode { ReadPageColor::Inverse } else { ReadPageColor::None };
++            }
++        }
++
+         updates_ui::tick(self, ctx);
+         crate::language_packs::tick(self);
+         let lang = i18n::Lang::from_pref(&self.ui.language);
+diff --git a/crates/ui-egui/src/app/commands.rs b/crates/ui-egui/src/app/commands.rs
+index c7719e3..633321f 100644
+--- a/crates/ui-egui/src/app/commands.rs
++++ b/crates/ui-egui/src/app/commands.rs
+@@ -28,6 +28,13 @@ impl WordApp {
+     /// Close, Envelopes, Labels and Finish & Merge on a document with unsaved changes first ask
+     /// Save / Don't Save / Cancel, and the command runs once that is answered (`ui.saveChanges`).
+     pub fn run(&mut self, id: &str, params: Value) -> Result<Value, String> {
++        if crate::folio::read_only() == Some(true) {
++            let editing = self.session.registry.get(id).is_some_and(|spec| spec.mutates);
++            if editing || matches!(id, "edit.undo" | "edit.redo" | "edit.undoTo" | "view.printLayout" | "view.webLayout" | "view.draft" | "view.outline") {
++                return Err("Solo lectura: desactiva este modo desde el menú de Lucy para editar.".into());
++            }
++        }
++
+         // Comment text still being typed is written first, so a save or export has it and a
+         // close, New or Open counts it as a change (#1348). A draft the document refuses is not
+         // part of it: saving and exporting go on without it (the refusal stays on the status
+@@ -745,10 +752,7 @@ impl WordApp {
+                         .into(),
+                 ));
+             }
+-            "ui.discord" => {
+-                self.canvas.open_url = Some("https://discord.gg/artcraft".into());
+-                json!({})
+-            }
++
+             "ui.caretAnimation" => {
+                 // File › Options › Advanced › Animation: `value` true or false turns the caret's
+                 // glide and fading blink on or off; no value reads it.
+@@ -1033,7 +1037,6 @@ pub(crate) fn works_without_document(id: &str) -> bool {
+             | "ui.openFileDialog"
+             | "ui.fileBrowser"
+             | "ui.makeDefaultApp"
+-            | "ui.discord"
+             | "ui.caretAnimation"
+             | "ui.startScreen"
+             | "ui.checkForUpdates"
+diff --git a/crates/ui-egui/src/app/frame.rs b/crates/ui-egui/src/app/frame.rs
+index 2d606c7..73357ab 100644
+--- a/crates/ui-egui/src/app/frame.rs
++++ b/crates/ui-egui/src/app/frame.rs
+@@ -52,7 +52,6 @@ impl WordApp {
+             backstage::show(self, ui);
+         } else if !self.has_document() {
+             // No document open (#1129): the ribbon greyed out but for Help, and no page.
+-            chrome::title_bar(self, ui);
+             ribbon::show(self, ui);
+             chrome::status_bar(self, ui);
+             egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |_| {});
+@@ -63,7 +62,6 @@ impl WordApp {
+             if screen != chrome::Screen::Normal {
+                 chrome::screen_bar(self, ui, screen);
+             } else {
+-                chrome::title_bar(self, ui);
+                 if moved(self) {
+                     return;
+                 }
+diff --git a/crates/ui-egui/src/backstage.rs b/crates/ui-egui/src/backstage.rs
+index 7d5a27f..656eeb9 100644
+--- a/crates/ui-egui/src/backstage.rs
++++ b/crates/ui-egui/src/backstage.rs
+@@ -130,23 +130,6 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
+                     go_to_page(app, id);
+                 }
+             }
+-            ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+-                for (label, id) in [("About", "about"), ("Discord community", "discord")] {
+-                    let (r, resp) = ui.allocate_exact_size(vec2(200.0, 32.0), Sense::click());
+-                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), tl!(label)));
+-                    if resp.hovered() {
+-                        ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(26));
+-                    }
+-                    ui.painter().text(pos2(r.min.x + 22.0, r.center().y), Align2::LEFT_CENTER, tl!(label), regular(13.0), egui::Color32::WHITE);
+-                    if resp.clicked() {
+-                        if id == "discord" {
+-                            let _ = app.run("ui.discord", json!({}));
+-                        } else {
+-                            app.dialog = crate::dialogs::Dialog::open("about", app);
+-                        }
+-                    }
+-                }
+-            });
+         });
+     egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.ribbon).inner_margin(egui::Margin::symmetric(40, 30))).show(ui, |ui| {
+         // The Print page fills the pane and scrolls its settings and its preview itself (#1156).
+diff --git a/crates/ui-egui/src/chrome.rs b/crates/ui-egui/src/chrome.rs
+index 2f0801f..6e8c228 100644
+--- a/crates/ui-egui/src/chrome.rs
++++ b/crates/ui-egui/src/chrome.rs
+@@ -62,42 +62,6 @@ pub(crate) fn qat_enabled(app: &WordApp, id: &str) -> bool {
+ 
+ /// The Quick Access Toolbar (#379): the user's commands (Save, Undo, Redo until customized), each
+ /// with a right-click menu, then the menu button that customizes it (#376).
+-fn quick_access(ui: &mut Ui, app: &mut WordApp) {
+-    let ids: Vec<String> = app.session.ribbon.qat().into_iter().map(str::to_string).collect();
+-    for (index, id) in ids.iter().enumerate() {
+-        let id = id.as_str();
+-        let tip = match id {
+-            "edit.undo" => crate::i18n::prefixed("Undo", app.session.undo_label().unwrap_or("")),
+-            "edit.redo" => tl!("Redo").to_string(),
+-            "file.save" => tl!("Save").to_string(),
+-            _ => app.session.registry.get(id).map(|s| tl!(s.label).to_string()).unwrap_or_default(),
+-        };
+-        let enabled = qat_enabled(app, id);
+-        let resp = qat_button(ui, app, crate::widgets::command_icon(id), &tip, id, enabled);
+-        if app.ui.keytips == crate::keytips::Phase::Tabs && ui.is_rect_visible(resp.rect) {
+-            let label = crate::keytips::qat_label(index, ids.len());
+-            if label.starts_with(&app.ui.keytip_prefix) {
+-                app.keytip_rects.push((resp.rect, label));
+-            }
+-        }
+-        crate::widgets::command_menu(&resp, app, id);
+-        if id == "edit.undo" {
+-            undo_list_button(ui, app, enabled);
+-        }
+-    }
+-    let t = Tokens::get(ui.ctx());
+-    let (r, _) = ui.allocate_exact_size(vec2(26.0, 24.0), Sense::hover());
+-    let resp = ui.interact(r, qat_menu_button_id(), Sense::click());
+-    if resp.hovered() {
+-        ui.painter().rect_filled(r, 4.0, t.hover);
+-    }
+-    icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(16.0, 16.0)), "more", t.icon, t.accent);
+-    let resp = resp.on_hover_text(tl!("Customize Quick Access Toolbar"));
+-    egui::Popup::menu(&resp).show(|ui| {
+-        ui.set_min_width(220.0);
+-        qat_menu(ui, app);
+-    });
+-}
+ 
+ /// The Undo button's drop-down arrow (#701), which opens [`undo_list`].
+ pub(crate) fn undo_list_button_id() -> egui::Id {
+@@ -202,9 +166,6 @@ fn undo_list(ui: &mut Ui, app: &mut WordApp) {
+ }
+ 
+ /// The Quick Access Toolbar's menu button (…), which opens [`qat_menu`].
+-pub(crate) fn qat_menu_button_id() -> egui::Id {
+-    egui::Id::unique("qat_menu_button")
+-}
+ 
+ /// The Quick Access Toolbar's menu: common commands to show or hide, and More Commands…
+ pub(crate) fn qat_menu(ui: &mut Ui, app: &mut WordApp) {
+@@ -277,154 +238,6 @@ impl MacTitleBar {
+ 
+ /// Draws the title bar with window dragging, AutoSave, quick access, account, community and search
+ /// controls, and the centred clickable document title.
+-pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
+-    let t = Tokens::get(ui.ctx());
+-    // macOS: shorter, so the system's traffic lights are centred in it; the tallest controls
+-    // shrink to keep a margin above and below them.
+-    let mac = app.integrated_titlebar;
+-    let bar = app.mac_titlebar;
+-    let left = if mac { bar.content_left as i8 } else { 8 };
+-    let control_h = if mac { 22.0 } else { 26.0 };
+-    egui::Panel::top("title_bar")
+-        .exact_size(if mac { bar.height } else { 38.0 })
+-        .frame(egui::Frame::NONE.fill(t.title_bar).inner_margin(egui::Margin { left, right: 10, top: 0, bottom: 0 }))
+-        .show(ui, |ui| {
+-            let full = ui.max_rect();
+-            // Drag the window by the title bar (integrated title bar on macOS).
+-            let drag = ui.interact(full, ui.scope_id().with("title_drag"), Sense::click_and_drag());
+-            if drag.drag_started() {
+-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+-            }
+-            if drag.double_clicked() {
+-                let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
+-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
+-            }
+-            let mut qat_end = full.min.x;
+-            let mut right_start = full.max.x;
+-            ui.horizontal_centered(|ui| {
+-                ui.spacing_mut().item_spacing = vec2(2.0, 0.0);
+-                // AutoSave switch: greyed out, with the reason as its tooltip, when AutoSave can't
+-                // cover the document (#196, #176); clicking it then offers Save As where that helps.
+-                let block = app.autosave_block();
+-                let on = app.autosaves();
+-                let color = if block.is_some() { t.text_dim.gamma_multiply(0.6) } else { t.text_dim };
+-                // The text is part of the switch (#3370): clicking it toggles AutoSave, and chrome
+-                // text is not document text to select (double-clicking it copied "AutoSave").
+-                let text = ui.add(
+-                    egui::Label::new(egui::RichText::new(tl!("AutoSave")).font(regular(11.5)).color(color)).selectable(false).sense(Sense::click()),
+-                );
+-                let (r, resp) = ui.allocate_exact_size(vec2(30.0, 16.0), Sense::click());
+-                let (fill, stroke, knob_fill) = match (&block, on) {
+-                    (Some(_), _) => (t.input.gamma_multiply(0.5), t.border.gamma_multiply(0.7), t.text_dim.gamma_multiply(0.45)),
+-                    (None, true) => (t.accent, t.accent, t.on_accent),
+-                    (None, false) => (t.input, t.border_strong, t.text_dim),
+-                };
+-                ui.painter().rect(r, 8.0, fill, Stroke::new(1.0, stroke), egui::StrokeKind::Inside);
+-                let knob = if on { r.max.x - 8.0 } else { r.min.x + 8.0 };
+-                ui.painter().circle_filled(pos2(knob, r.center().y), 5.0, knob_fill);
+-                let tip = block
+-                    .as_ref()
+-                    .map_or_else(|| tl!("AutoSave saves every change to the file (needs a saved document)").to_string(), |b| b.reason());
+-                let text = text.on_hover_text(tip.as_str()).on_hover_cursor(egui::CursorIcon::PointingHand);
+-                let resp = resp.on_hover_text(tip.as_str()).on_hover_cursor(egui::CursorIcon::PointingHand);
+-                if text.clicked() || resp.clicked() {
+-                    match block {
+-                        None => {
+-                            let _ = app.run("file.autosave", json!({}));
+-                        }
+-                        // AutoSave comes on once Save As has saved (maybe on a later frame, #94).
+-                        Some(b) if b.save_as_helps() => {
+-                            let _ = app.save_as(crate::file_dialogs::AfterSave::AutoSave);
+-                        }
+-                        Some(b) => app.status(b.reason()),
+-                    }
+-                }
+-                ui.add_space(8.0);
+-                // Hidden (#1945): neither the buttons nor the … menu; the title centres as before.
+-                if app.ui.quick_access_toolbar {
+-                    quick_access(ui, app);
+-                }
+-                qat_end = ui.min_rect().max.x;
+-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+-                    // Account / community.
+-                    let (r, resp) = ui.allocate_exact_size(vec2(control_h, control_h), Sense::click());
+-                    ui.painter().circle_filled(r.center(), control_h / 2.0 - 1.0, t.accent);
+-                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tl!("Account")));
+-                    let initials: String = app.session.user_initials().chars().take(2).collect();
+-                    ui.painter().text(r.center(), Align2::CENTER_CENTER, initials, semibold(10.5), t.on_accent);
+-                    if resp.on_hover_text(format!("{} — set your name in File › Options", app.session.author)).clicked() {
+-                        let _ = app.run("ui.backstage", json!({"value": true, "page": "options", "pane": "general"}));
+-                    }
+-                    ui.add_space(8.0);
+-                    if app.ui.show_discord {
+-                        let (r, resp) = ui.allocate_exact_size(vec2(84.0, 22.0), Sense::click());
+-                        ui.painter().rect_filled(r, 11.0, if resp.hovered() { t.accent_text } else { t.accent });
+-                        icons::paint(
+-                            ui.painter(),
+-                            Rect::from_center_size(pos2(r.min.x + 13.0, r.center().y), vec2(14.0, 14.0)),
+-                            "discord",
+-                            t.on_accent,
+-                            t.on_accent,
+-                        );
+-                        ui.painter().text(pos2(r.min.x + 24.0, r.center().y), Align2::LEFT_CENTER, tl!("Discord"), medium(11.5), t.on_accent);
+-                        if resp.on_hover_text(tl!("Join the ArtCraft community on Discord")).clicked() {
+-                            let _ = app.run("ui.discord", json!({}));
+-                        }
+-                        ui.add_space(8.0);
+-                    }
+-                    search_box(app, ui, control_h);
+-                    right_start = ui.min_rect().min.x;
+-                });
+-            });
+-            // Centred title.
+-            let title = if !app.has_document() {
+-                // No document open (#1129): the app's name alone.
+-                "WordCraft".to_string()
+-            } else {
+-                format!(
+-                    "{} — {}",
+-                    app.title_stem(),
+-                    if app.session.dirty {
+-                        tl!("Edited")
+-                    } else if app.session.path.is_some() {
+-                        tl!("Saved")
+-                    } else {
+-                        tl!("Not saved")
+-                    }
+-                )
+-            };
+-            let font = TypeRung::Chrome.semibold();
+-            let track = TypeRung::Chrome.tracking();
+-            let cx = full.center().x;
+-            let available = 2.0 * (cx - qat_end - 10.0).min(right_start - 10.0 - cx);
+-            let mut shown: String = title.chars().take(240).collect();
+-            if text_width(ui.painter(), &shown, &font, track, t.text) > available {
+-                while !shown.is_empty() && text_width(ui.painter(), &format!("{shown}…"), &font, track, t.text) > available {
+-                    shown.pop();
+-                }
+-                shown.push('…');
+-            }
+-            let w = text_width(ui.painter(), &shown, &font, track, t.text);
+-            if available > 24.0 {
+-                let rect = Rect::from_center_size(pos2(cx, full.center().y), vec2(w + 8.0, control_h));
+-                let response = ui.interact(rect, ui.scope_id().with("document_name"), Sense::click()).on_hover_text(tl!("Rename Document"));
+-                response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &title));
+-                if response.clicked() {
+-                    let _ = app.run("file.rename", json!({}));
+-                }
+-
+-                paint_text(
+-                    ui.painter(),
+-                    pos2(cx - w / 2.0, full.center().y - TypeRung::Chrome.line_height() / 2.0),
+-                    Align2::LEFT_TOP,
+-                    &shown,
+-                    &font,
+-                    track,
+-                    t.text,
+-                );
+-            }
+-        });
+-}
+ 
+ /// Search ("Tell me"): a box that opens command search. In the title bar, and in the Commands bar
+ /// of Full Screen (#1678).
+diff --git a/crates/ui-egui/src/dialogs.rs b/crates/ui-egui/src/dialogs.rs
+index c402fde..f5b6deb 100644
+--- a/crates/ui-egui/src/dialogs.rs
++++ b/crates/ui-egui/src/dialogs.rs
+@@ -311,10 +311,6 @@ pub enum Dialog {
+         #[serde(skip)]
+         note: String,
+     },
+-    /// Tabs: 0 About, 1 Contributors, 2 Models.
+-    About {
+-        tab: u8,
+-    },
+     /// Confirm before deleting a recovery copy.
+     DiscardRecovery {
+         id: String,
+@@ -511,7 +507,7 @@ impl Dialog {
+             Dialog::Refs(d) => d.name(),
+             Dialog::Icons { .. } => "icons",
+             Dialog::PasteSpecial { .. } => "pasteSpecial",
+-            Dialog::About { .. } => "about",
++
+             Dialog::SaveChanges { .. } => "saveChanges",
+             Dialog::DiscardRecovery { .. } => "discardRecovery",
+             Dialog::RecipientList { .. } => "recipientList",
+@@ -759,10 +755,7 @@ impl Dialog {
+             }
+             "pasteSpecial" => Dialog::paste_special(app, &json!({})),
+             "renameDocument" => Dialog::RenameDocument { name: app.title_stem(), message: String::new(), focus: true },
+-            "about" => Dialog::About { tab: 0 },
+-            "contributors" => Dialog::About { tab: 1 },
+-            "models" => Dialog::About { tab: 2 },
+-            "languageData" => Dialog::About { tab: 3 },
++
+             // The current list to edit, or a new one to type.
+             "recipientList" | "newRecipientList" => {
+                 let m = &app.session.merge;
+diff --git a/crates/ui-egui/src/dialogs/chrome.rs b/crates/ui-egui/src/dialogs/chrome.rs
+index 4c112d1..20abe0e 100644
+--- a/crates/ui-egui/src/dialogs/chrome.rs
++++ b/crates/ui-egui/src/dialogs/chrome.rs
+@@ -102,7 +102,7 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
+         Dialog::Refs(d) => d.title(),
+         Dialog::Icons { .. } => "Icons",
+         Dialog::PasteSpecial { .. } => "Paste Special",
+-        Dialog::About { .. } => "About WordCraft",
++
+         Dialog::SaveChanges { .. } => "WordCraft",
+         Dialog::DiscardRecovery { .. } => "Discard recovery copy",
+         Dialog::RecipientList { .. } => "Recipient List",
+diff --git a/crates/ui-egui/src/dialogs/dialogs_chart.rs b/crates/ui-egui/src/dialogs/dialogs_chart.rs
+index a0f03a5..fc3a4de 100644
+--- a/crates/ui-egui/src/dialogs/dialogs_chart.rs
++++ b/crates/ui-egui/src/dialogs/dialogs_chart.rs
+@@ -396,7 +396,7 @@ mod tests {
+         let mut f = ChartDataForm::of(&ChartSpec::sample(ChartType::Column));
+         f.add_row();
+         f.add_series();
+-        crate::i18n::set_current(crate::i18n::Lang::EN);
++        crate::i18n::set_current(crate::i18n::Lang::ES);
+         let (category, series) = (f.categories.last().unwrap(), f.names.last().unwrap());
+         assert!(category.starts_with("الفئة") && series.starts_with("السلسلة"), "{category:?} {series:?}");
+         for name in [category, series] {
+diff --git a/crates/ui-egui/src/dialogs/dispatch.rs b/crates/ui-egui/src/dialogs/dispatch.rs
+index ad87c8e..5088c64 100644
+--- a/crates/ui-egui/src/dialogs/dispatch.rs
++++ b/crates/ui-egui/src/dialogs/dispatch.rs
+@@ -39,7 +39,7 @@ pub(super) fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
+         Dialog::Macros { name } => macros(app, ui, name),
+         Dialog::Icons { query, category, selected } => icons_body(app, ui, query, category, selected),
+         Dialog::PasteSpecial { .. } => paste_special_dialog(app, ui, d),
+-        Dialog::About { .. } => about_dialog(ui, d),
++
+         Dialog::DiscardRecovery { .. } => discard_recovery_dialog(app, ui, d),
+         Dialog::SaveChanges { .. } => save_changes_dialog(app, ui, d),
+         Dialog::RecipientList { fields, rows, message, filter } => recipient_list(app, ui, fields, rows, message, filter),
+@@ -1070,37 +1070,6 @@ fn paste_special_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool
+     ok || cancel
+ }
+ 
+-fn about_dialog(ui: &mut Ui, d: &mut Dialog) -> bool {
+-    let Dialog::About { tab } = d else {
+-        return false;
+-    };
+-    ui.set_width(660.0);
+-    let names = ["About", "Contributors", "Models", "Language data"].map(|n| tl!(n).to_string());
+-    if let Some(i) = crate::widgets::dialog_tabs(ui, &names, *tab as usize) {
+-        *tab = i as u8;
+-    }
+-    ui.add_space(6.0);
+-    match *tab {
+-        1 => crate::credits::contributors_ui(ui),
+-        2 => crate::credits::models_ui(ui),
+-        3 => crate::language_packs::about_tab(ui),
+-        _ => {
+-            ui.label(egui::RichText::new(tl!("WordCraft")).font(semibold(22.0)));
+-            let build = option_env!("WORDCRAFT_BUILD_SHA").map(|s| s.get(..8).unwrap_or(s)).unwrap_or(tl!("development build"));
+-            ui.label(crate::i18n::fmt(tl!("Version {version} ({build})"), &[("version", env!("CARGO_PKG_VERSION")), ("build", build)]));
+-            ui.label(tl!("A free, open-source word processor written from scratch in Rust.\nPart of the Crafting Apps from the ArtCraft team."));
+-            ui.add_space(6.0);
+-            ui.hyperlink_to(tl!("getartcraft.com/apps/wordcraft"), "https://getartcraft.com/apps/wordcraft");
+-            ui.hyperlink_to(tl!("Join us on Discord: discord.gg/artcraft"), "https://discord.gg/artcraft");
+-            ui.hyperlink_to(tl!("Source code: github.com/storytold/wordcraft"), "https://github.com/storytold/wordcraft");
+-            ui.add_space(6.0);
+-            ui.label(egui::RichText::new(tl!("MIT OR Apache-2.0. Copyright (c) 2026 ArtCraft Team and the WordCraft contributors.")).small().weak());
+-        }
+-    }
+-    // One Close button: About has nothing to cancel.
+-    super::chrome::close_button(ui)
+-}
+-
+ fn discard_recovery_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
+     let Dialog::DiscardRecovery { name, .. } = d else {
+         return false;
+diff --git a/crates/ui-egui/src/dialogs/tests.rs b/crates/ui-egui/src/dialogs/tests.rs
+index 3195286..faa9288 100644
+--- a/crates/ui-egui/src/dialogs/tests.rs
++++ b/crates/ui-egui/src/dialogs/tests.rs
+@@ -275,7 +275,7 @@ fn command_search_respects_turkish_i_pairs_and_keeps_canonical_matches() {
+     crate::i18n::set_current(crate::i18n::fixture_lang("x-fixture", LABELS));
+     assert!(!command_matches(italic, "italik"), "İ lowercases to i plus a combining dot");
+     assert_eq!(crate::i18n::lowercase("Iİıi"), "ii\u{307}ıi");
+-    crate::i18n::set_current(crate::i18n::Lang::EN);
++    crate::i18n::set_current(crate::i18n::Lang::ES);
+ 
+     let mut fonts = false;
+     let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
+diff --git a/crates/ui-egui/src/folio.rs b/crates/ui-egui/src/folio.rs
+new file mode 100644
+index 0000000..f26db5b
+--- /dev/null
++++ b/crates/ui-egui/src/folio.rs
+@@ -0,0 +1,17 @@
++//! Folio Android display preference. This never changes the document model.
++#[cfg(target_arch = "wasm32")]
++pub fn dark() -> Option<bool> {
++    js_sys::Reflect::get(&js_sys::global(), &"__folioDark".into()).ok().and_then(|v| v.as_bool())
++}
++#[cfg(not(target_arch = "wasm32"))]
++pub fn dark() -> Option<bool> {
++    None
++}
++
++/// Ephemeral per-tab reading preference; it never sets document protection.
++#[cfg(target_arch = "wasm32")]
++pub fn read_only() -> Option<bool> {
++    js_sys::Reflect::get(&js_sys::global(), &"__folioReadOnly".into()).ok().and_then(|v| v.as_bool())
++}
++#[cfg(not(target_arch = "wasm32"))]
++pub fn read_only() -> Option<bool> { None }
+diff --git a/crates/ui-egui/src/i18n.rs b/crates/ui-egui/src/i18n.rs
+index 63a1c52..b3ca8d7 100644
+--- a/crates/ui-egui/src/i18n.rs
++++ b/crates/ui-egui/src/i18n.rs
+@@ -1,408 +1,115 @@
+-//! Interface languages (#8). Strings in the code stay English and are the lookup keys; the
+-//! craft-i18n catalogs map them to display text when the UI is drawn. Command ids, document text,
+-//! file names, the control channel, the CLI and MCP never see translated text, so scripts and
+-//! agents are unaffected. A string without a translation shows in English, so coverage can grow
+-//! one entry at a time, and a missing translation never fails a build, a test or a release.
+-//!
+-//! The catalogs live in [storytold/craft-i18n](https://github.com/storytold/craft-i18n)
+-//! (`locales/<locale>/common.tsv` and `wordcraft.tsv`), not in this repository. `build.rs` embeds
+-//! them from `CRAFT_I18N_DIR` (CI and releases check out the SHA in `craft-i18n.rev`); without it
+-//! the build is English only. Lookup, fallback (`pt-br` → `pt` → English, app rows over shared
+-//! ones), plurals, language names and locale matching are the `craft-i18n` crate's (craft-libs).
+-//!
+-//! The `language` setting is `auto` by default: the UI follows the operating system's language
+-//! (Windows display language, macOS preferred languages, `LANG`/`LC_*` elsewhere) when there is a
+-//! catalog for it, and English otherwise. File ▸ Options ▸ Interface language picks one by hand.
+-//!
+-//! # Adding or changing a translation
+-//! In craft-i18n: add rows to `locales/<locale>/wordcraft.tsv` (its `docs/integration.md`); they
+-//! show here once `craft-i18n.rev` moves to a commit that has them. A feature PR here adds the
+-//! English only.
+-//!
+-//! # Adding a language
+-//! 1. craft-i18n gets `locales/<code>/wordcraft.tsv` and the language's `@id language.name` row.
+-//! 2. Add one row to [`LANGUAGES`]. Set its `editing_lang` only when `wordcraft-proof` can proof
+-//!    the language (Polish: `pl-PL`): new documents are then written in it.
+-//!
+-//! The Options dropdown and the system-language match pick it up from there.
+-//!
+-//! # Looking strings up
+-//! - [`tl!`](crate::tl) / [`t`]: a string in the current language. [`tr`]: in a given one.
+-//! - [`tc`] / [`trc`]: worded for a context (`preview`), for text that must fit a tight spot.
+-//! - [`get`]: one context's translation only, never the plain row (`spacing`'s "Open").
+-//! - [`location`]: a ribbon location such as `Home › Font`, segment by segment.
+-//! - [`fmt`]: fill `{name}` placeholders after a lookup; translators may reorder them.
+-//! - [`fmt_plain`]: [`fmt`] without bidi isolate marks, for text that goes into the document.
+-
+-use std::cell::Cell;
+-use std::sync::{LazyLock, OnceLock};
+-
++//! Interfaz de Lucy: español únicamente; los identificadores y el contenido de los documentos se conservan.
+ use craft_i18n::I18n;
+-
+ pub use craft_i18n::{fmt, fmt_plain};
+-
++use std::sync::LazyLock;
+ include!(concat!(env!("OUT_DIR"), "/craft_i18n.rs"));
+-
+-/// The embedded catalogs, offering exactly the languages in [`LANGUAGES`]. Built on first use;
+-/// a locale is parsed on its first lookup.
+ static I18N: LazyLock<I18n> = LazyLock::new(|| {
+-    let offered: Vec<&str> = LANGUAGES.iter().map(|l| l.code).collect();
+-    let (i18n, problems) = I18n::new(CRAFT_I18N, &offered);
+-    problems.iter().for_each(|p| log::warn!("interface catalogs: {p}"));
+-    i18n
++    let (catalogs, problems) = I18n::new(CRAFT_I18N, &["es"]);
++    for problem in problems {
++        log::warn!("catálogo de interfaz: {problem}");
++    }
++    catalogs
+ });
+-
+-/// The `language` setting that follows the system.
+-pub const AUTO: &str = "auto";
+-
+-/// One interface language WordCraft offers: what the app needs beyond the catalogs. Its name and
+-/// translations come from craft-i18n.
++fn spanish() -> craft_i18n::Lang {
++    I18N.from_code("es").unwrap_or(craft_i18n::Lang::EN)
++}
++pub const AUTO: &str = "es";
+ pub struct LangInfo {
+-    /// BCP 47 code, lowercase (`ja`, `zh-hans`). Also the `language` setting's value and the
+-    /// craft-i18n locale.
+     pub code: &'static str,
+-    /// Which CJK interface face comes first (Chinese text wants the Chinese face).
+     pub prefer_hans: bool,
+-    /// The language (BCP 47) new blank documents are written in with this interface, for
+-    /// languages WordCraft can proof; `None` keeps WordCraft's default, US English.
+     pub editing_lang: Option<&'static str>,
+ }
+-
+-/// The languages WordCraft offers, when their catalogs are embedded. English first: it is the
+-/// fallback and the source language.
+-pub static LANGUAGES: [LangInfo; 27] = [
+-    LangInfo { code: "en", prefer_hans: false, editing_lang: None },
+-    // Simplified Chinese; `zh`, `zh-CN`, `zh-SG` and `zh-Hans-*` resolve here (the crate's matching).
+-    LangInfo { code: "zh-hans", prefer_hans: true, editing_lang: None },
+-    // Traditional Chinese (Taiwan vocabulary); `zh-TW`, `zh-HK`, `zh-MO` and `zh-Hant-*` resolve here.
+-    LangInfo { code: "zh-hant", prefer_hans: true, editing_lang: None },
+-    LangInfo { code: "ja", prefer_hans: false, editing_lang: None },
+-    LangInfo { code: "ko", prefer_hans: false, editing_lang: None },
+-    LangInfo { code: "uk", prefer_hans: false, editing_lang: None },
+-    // Spanish, neutral across Spain and Latin America; `es-ES`, `es-MX`, `es-419` … resolve here.
+-    // No fixed editing language: new documents are written in the region's Spanish
+-    // (`Session::region_spanish`), like English.
+-    LangInfo { code: "es", prefer_hans: false, editing_lang: None },
+-    // Brazilian Portuguese; `pt-BR` and `pt-BR-*` resolve here. Plain `pt` and `pt-PT` have no
+-    // catalog yet (the European vocabulary differs), so they stay in English ([`lang_from_tag`]).
+-    LangInfo { code: "pt-br", prefer_hans: false, editing_lang: Some("pt-BR") },
+-    // Serbian, Cyrillic script (the default per BCP 47 when no script is given); `sr`, `sr-RS`,
+-    // `sr-Cyrl-*` resolve here.
+-    LangInfo { code: "sr", prefer_hans: false, editing_lang: None },
+-    // Serbian, Latin script; `sr-Latn-*` resolves here; a script is never
+-    // crossed, so Latin Serbian never shows Cyrillic.
+-    LangInfo { code: "sr-latn", prefer_hans: false, editing_lang: None },
+-    // Polish; `pl`, `pl-PL` and `pl_PL.UTF-8` resolve here. WordCraft proofs Polish (spelling,
+-    // grammar, hyphenation), so new documents are written in Polish with this interface.
+-    LangInfo { code: "pl", prefer_hans: false, editing_lang: Some("pl-PL") },
+-    LangInfo { code: "cs", prefer_hans: false, editing_lang: Some("cs-CZ") },
+-    LangInfo { code: "et", prefer_hans: false, editing_lang: None },
+-    // German, neutral across Germany, Austria and Switzerland; `de`, `de-DE`, `de-AT`, `de-CH` …
+-    // resolve here.
+-    LangInfo { code: "de", prefer_hans: false, editing_lang: None },
+-    // Russian; `ru`, `ru-RU`, `ru_RU.UTF-8` and other regions resolve here.
+-    LangInfo { code: "ru", prefer_hans: false, editing_lang: None },
+-    LangInfo { code: "tr", prefer_hans: false, editing_lang: Some("tr-TR") },
+-    // Italian; `it-IT`, `it-CH` and `it-*` resolve here. New documents are written in
+-    // Italian: `wordcraft-proof` checks it (`ProofLang::It`).
+-    LangInfo { code: "it", prefer_hans: false, editing_lang: Some("it-IT") },
+-    // Hungarian; `hu`, `hu-HU` and `hu_HU.UTF-8` resolve here.
+-    LangInfo { code: "hu", prefer_hans: false, editing_lang: None },
+-    // French; `fr`, `fr-FR`, `fr_CA` and other regions resolve here.
+-    LangInfo { code: "fr", prefer_hans: false, editing_lang: None },
+-    // Bulgarian; `bg`, `bg-BG` and `bg_BG.UTF-8` resolve here.
+-    LangInfo { code: "bg", prefer_hans: false, editing_lang: None },
+-    // Vietnamese; `vi`, `vi-VN` and `vi_VN.UTF-8` resolve here.
+-    LangInfo { code: "vi", prefer_hans: false, editing_lang: None },
+-    // Swedish; sv, sv-SE, sv-FI and sv_SE.UTF-8 resolve here.
+-    LangInfo { code: "sv", prefer_hans: false, editing_lang: None },
+-    // Croatian; `hr`, `hr-HR` and `hr_HR.UTF-8` resolve here.
+-    LangInfo { code: "hr", prefer_hans: false, editing_lang: None },
+-    // Dutch; `nl`, `nl-NL`, `nl-BE` and `nl_NL.UTF-8` resolve here.
+-    LangInfo { code: "nl", prefer_hans: false, editing_lang: None },
+-    // Danish; `da`, `da-DK` and `da_DK.UTF-8` resolve here.
+-    LangInfo { code: "da", prefer_hans: false, editing_lang: None },
+-    // Romanian; `ro`, `ro-RO`, `ro_RO.UTF-8` and `ro-MD` resolve here.
+-    LangInfo { code: "ro", prefer_hans: false, editing_lang: None },
+-    // Slovenian; `sl`, `sl-SI` and `sl_SI.UTF-8` resolve here.
+-    LangInfo { code: "sl", prefer_hans: false, editing_lang: None },
+-];
+-
+-/// A language the UI can be shown in: English, or an offered language whose catalogs are embedded.
+-#[derive(Clone, Copy)]
+-pub struct Lang {
+-    lang: craft_i18n::Lang,
+-    /// The catalogs it is looked up in: the embedded ones ([`I18N`]), or a test fixture's.
+-    catalogs: Option<&'static I18n>,
+-}
+-
+-impl std::fmt::Debug for Lang {
+-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+-        write!(f, "Lang({})", self.code())
+-    }
+-}
+-
+-impl PartialEq for Lang {
+-    fn eq(&self, other: &Self) -> bool {
+-        self.code() == other.code()
+-    }
+-}
+-
+-impl Eq for Lang {}
+-
++pub static LANGUAGES: [LangInfo; 1] = [LangInfo { code: "es", prefer_hans: false, editing_lang: None }];
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub struct Lang;
+ impl Lang {
+-    pub const EN: Lang = Lang { lang: craft_i18n::Lang::EN, catalogs: None };
+-
+-    fn i18n(self) -> &'static I18n {
+-        self.catalogs.unwrap_or_else(|| LazyLock::force(&I18N))
++    pub const ES: Self = Self;
++    pub const fn code(self) -> &'static str {
++        "es"
+     }
+-
+-    fn info(self) -> Option<&'static LangInfo> {
+-        let code = self.code();
+-        LANGUAGES.iter().find(|l| l.code == code)
++    pub const fn name(self) -> &'static str {
++        "Español"
+     }
+-
+-    pub fn code(self) -> &'static str {
+-        self.i18n().code(self.lang)
++    pub const fn prefers_hans(self) -> bool {
++        false
+     }
+-
+-    /// The language's name in itself (its `@id language.name` row), shown in the Options dropdown.
+-    pub fn name(self) -> &'static str {
+-        self.i18n().name(self.lang)
+-    }
+-
+-    pub fn prefers_hans(self) -> bool {
+-        self.info().is_some_and(|l| l.prefer_hans)
++    pub const fn prefers_hant(self) -> bool {
++        false
+     }
+-
+-    pub fn prefers_korean(self) -> bool {
+-        self.code() == "ko"
+-    }
+-
+-    pub fn prefers_hant(self) -> bool {
+-        self.code() == "zh-hant"
+-    }
+-
+-    /// The language new blank documents are written in with this interface ([`LangInfo::editing_lang`]).
+-    pub fn editing_lang(self) -> Option<&'static str> {
+-        self.info().and_then(|l| l.editing_lang)
+-    }
+-
+-    /// Is the interface written in CJK script (its own name is), so it needs a CJK face?
+-    pub fn uses_cjk(self) -> bool {
+-        self.name().chars().any(|c| ('\u{2E80}'..='\u{9FFF}').contains(&c) || ('\u{AC00}'..='\u{D7AF}').contains(&c))
++    pub fn hant_font_chars() -> Vec<char> {
++        Vec::new()
+     }
+-
+-    /// The embedded catalogs (shared, then WordCraft's) this language reads; none for English.
+-    fn catalog_texts(self) -> impl Iterator<Item = &'static str> {
+-        let code = self.code();
+-        CRAFT_I18N.iter().filter(move |(c, ..)| c.eq_ignore_ascii_case(code)).flat_map(|(_, shared, app)| [*shared, *app])
++    pub const fn prefers_korean(self) -> bool {
++        false
+     }
+-
+-    /// The CJK interface text the fonts must cover with the Chinese (`hans`) or other CJK fallback
+-    /// order: the catalogs of the CJK languages using that order, and every language's own name (the
+-    /// Options list). The interface fonts check the embedded faces against it (#486).
+-    pub fn cjk_font_text(hans: bool) -> (Vec<&'static str>, String) {
+-        let catalogs = Lang::all().filter(|l| l.uses_cjk() && l.prefers_hans() == hans).flat_map(Lang::catalog_texts).collect();
+-        (catalogs, Lang::all().map(Lang::name).collect::<Vec<_>>().join(" "))
++    pub const fn uses_cjk(self) -> bool {
++        false
+     }
+-
+-    /// The CJK interface catalogs using the Korean or Chinese writing-system preference.
+-    pub fn cjk_font_text_for(hans: bool, korean: bool) -> (Vec<&'static str>, String) {
+-        let catalogs =
+-            Lang::all().filter(|l| l.uses_cjk() && l.prefers_hans() == hans && l.prefers_korean() == korean).flat_map(Lang::catalog_texts).collect();
+-        (catalogs, Lang::all().map(Lang::name).collect::<Vec<_>>().join(" "))
++    pub const fn editing_lang(self) -> Option<&'static str> {
++        None
+     }
+-
+-    /// The CJK characters of the Traditional Chinese catalogs, which an installed Traditional
+-    /// Chinese UI font must cover to be put first.
+-    pub fn hant_font_chars() -> Vec<char> {
+-        let chars: std::collections::BTreeSet<char> = Lang::all()
+-            .filter(|l| l.prefers_hant())
+-            .flat_map(Lang::catalog_texts)
+-            .flat_map(str::chars)
+-            .filter(|c| wordcraft_fonts::is_cjk(*c))
+-            .collect();
+-        chars.into_iter().collect()
++    pub fn cjk_font_text(_hans: bool) -> (Vec<&'static str>, String) {
++        (Vec::new(), "Español".into())
+     }
+-
+-    /// A language by its exact code (any case): one of [`LANGUAGES`] whose catalogs are embedded.
+-    pub fn from_code(code: &str) -> Option<Lang> {
+-        let info = LANGUAGES.iter().find(|l| l.code.eq_ignore_ascii_case(code))?;
+-        I18N.from_code(info.code).map(|lang| Lang { lang, catalogs: None })
++    pub fn cjk_font_text_for(_hans: bool, _korean: bool) -> (Vec<&'static str>, String) {
++        (Vec::new(), "Español".into())
+     }
+-
+-    /// Resolve the `language` setting: a language code, or [`AUTO`] (and anything unknown, e.g. a
+-    /// code from a newer version) to follow the system.
+-    pub fn from_pref(pref: &str) -> Lang {
+-        Lang::from_code(pref).unwrap_or_else(system_lang)
++    pub fn from_code(code: &str) -> Option<Self> {
++        code.trim().split(['-', '_']).next().filter(|c| c.eq_ignore_ascii_case("es")).map(|_| Self::ES)
+     }
+-
+-    /// Every language the interface can be shown in: [`LANGUAGES`] in order, those with embedded
+-    /// catalogs (English only in a build without craft-i18n).
+-    pub fn all() -> impl Iterator<Item = Lang> {
+-        LANGUAGES.iter().filter_map(|l| Lang::from_code(l.code))
++    pub const fn from_pref(_pref: &str) -> Self {
++        Self::ES
+     }
+-
+-    /// Every registered language in the order a picker lists them: English first (the source
+-    /// language and the fallback), then the rest by their own name with accents folded, so
+-    /// Čeština sits under C rather than after Z. Names in other scripts follow the Latin ones in
+-    /// code point order: Greek, Cyrillic, Arabic, then the CJK languages.
+-    pub fn for_picker() -> Vec<Lang> {
+-        let mut rest: Vec<Lang> = Lang::all().filter(|l| l.code() != Lang::EN.code()).collect();
+-        rest.sort_by_cached_key(|l| name_sort_key(l.name()));
+-        std::iter::once(Lang::EN).chain(rest).collect()
++    pub fn all() -> impl Iterator<Item = Self> {
++        [Self::ES].into_iter()
+     }
+-}
+-
+-/// The canonical `language` setting for user input: [`AUTO`] or a registered code (any case).
+-/// `None` for anything else, so callers keep the current setting.
+-pub fn normalize_pref(pref: &str) -> Option<&'static str> {
+-    if pref.eq_ignore_ascii_case(AUTO) {
+-        return Some(AUTO);
++    pub fn for_picker() -> Vec<Self> {
++        vec![Self::ES]
+     }
+-    Lang::from_code(pref).map(Lang::code)
+ }
+-
+-/// Portuguese other than Brazil's (`pt`, `pt-PT`, `pt_AO.UTF-8`): WordCraft has no catalog for
+-/// it (the European vocabulary differs), so it stays English rather than falling to `pt-br` as the
+-/// crate's matching would.
+-fn non_brazilian_portuguese(tag: &str) -> bool {
+-    let tag = tag.trim().to_ascii_lowercase();
+-    let mut parts = tag.split(['.', '@']).next().unwrap_or("").split(['-', '_']);
+-    parts.next() == Some("pt") && !parts.any(|p| p == "br")
++pub const fn normalize_pref(_pref: &str) -> Option<&'static str> {
++    Some("es")
+ }
+-
+-/// The registered language for a locale tag such as `ja_JP.UTF-8` or `zh-Hant-TW`; `None` when
+-/// there is no catalog for it. `C`/`POSIX` mean English.
+ pub fn lang_from_tag(tag: &str) -> Option<Lang> {
+-    if non_brazilian_portuguese(tag) {
+-        return None;
+-    }
+-    I18N.match_tag(tag).and_then(|lang| Lang::from_code(I18N.code(lang)))
++    Lang::from_code(tag)
+ }
+-
+-/// The first of the system's preferred languages WordCraft has, in the user's order: someone
+-/// who prefers French, then Japanese, gets Japanese rather than English.
+ pub fn first_supported<'a>(tags: impl IntoIterator<Item = &'a str>) -> Option<Lang> {
+     tags.into_iter().find_map(lang_from_tag)
+ }
+-
+-/// The system language (looked up once). English when it can't be determined or isn't supported.
+-pub fn system_lang() -> Lang {
+-    // Tests drive the UI by its English labels whatever the machine's language is.
+-    if cfg!(test) {
+-        return Lang::EN;
+-    }
+-    static SYSTEM: OnceLock<Lang> = OnceLock::new();
+-    *SYSTEM.get_or_init(detect_system_lang)
+-}
+-
+-fn detect_system_lang() -> Lang {
+-    // An explicit override, then the platform's preferred UI languages (Windows display language,
+-    // macOS preferred languages, `LC_ALL`/`LC_MESSAGES`/`LANG` on Unix, the browser on the web).
+-    if let Some(l) = std::env::var("WORDCRAFT_LANGUAGE").ok().and_then(|v| lang_from_tag(&v)) {
+-        return l;
+-    }
+-    let tags: Vec<String> = sys_locale::get_locales().take(16).collect();
+-    first_supported(tags.iter().map(String::as_str)).unwrap_or(Lang::EN)
++pub const fn system_lang() -> Lang {
++    Lang::ES
+ }
+-
+-/// The system region (#838): it picks the paper File › New starts on, the default measurement
+-/// unit and the decimal separator, independently of the interface language (an English
+-/// interface in Germany still gets A4 and centimetres). `en-US` in tests.
+ pub fn system_region() -> wordcraft_engine::Region {
+     if cfg!(test) {
+         return wordcraft_engine::Region::default();
+     }
+-    // The environment's locale variables (Unix), else the platform's first preferred locale (on
+-    // macOS it carries the region, as in `en-PL`; on the web it is the browser's language).
+     wordcraft_engine::Region::from_locale_vars(|name| std::env::var(name).ok(), sys_locale::get_locale)
+ }
+-
+-thread_local! {
+-    // Per thread: parallel test harnesses must not change each other's language.
+-    static CURRENT: Cell<Lang> = const { Cell::new(Lang::EN) };
++pub fn set_current(_lang: Lang) {}
++pub const fn current() -> Lang {
++    Lang::ES
+ }
+-
+-/// Set the language the UI is drawn in (the app does this every frame from its setting).
+-pub fn set_current(lang: Lang) {
+-    CURRENT.set(lang);
+-}
+-
+-/// The language the UI is drawn in.
+-pub fn current() -> Lang {
+-    CURRENT.get()
++pub fn has(_lang: Lang, s: &str) -> bool {
++    I18N.get(spanish(), "", s).is_some()
+ }
+-
+-/// Does `lang` have a translation for this string? (English never does: it is the source.)
+-pub fn has(lang: Lang, s: &str) -> bool {
+-    lang.i18n().get(lang.lang, "", s).is_some()
+-}
+-
+-/// `s` in the current language ([`tr`] with [`current`]).
+ pub fn t(s: &str) -> &str {
+-    tr(current(), s)
++    I18N.t(spanish(), s)
+ }
+-
+-/// `s` in the current language as worded for `context` (`preview`, `template`), falling back to
+-/// the plain translation and then to English.
+ pub fn tc<'a>(context: &str, s: &'a str) -> &'a str {
+-    trc(current(), context, s)
++    I18N.tc(spanish(), context, s)
+ }
+-
+-/// [`tc`] in a given language.
+-pub fn trc<'a>(lang: Lang, context: &str, s: &'a str) -> &'a str {
+-    #[cfg(test)]
+-    if pseudo::on() {
+-        return I18N.tc(craft_i18n::Lang::PSEUDO, context, s);
+-    }
+-    lang.i18n().tc(lang.lang, context, s)
++pub fn trc<'a>(_lang: Lang, context: &str, s: &'a str) -> &'a str {
++    I18N.tc(spanish(), context, s)
+ }
+-
+-/// `s`'s translation for `context` in the current language, with no fallback to the plain row
+-/// or English: for a word whose plain translation means something else here (the "Open"
+-/// paragraph-spacing preset is not the file verb).
+ pub fn get<'a>(context: &str, s: &'a str) -> Option<&'a str> {
+-    #[cfg(test)]
+-    if pseudo::on() {
+-        return I18N.get(craft_i18n::Lang::PSEUDO, context, s);
+-    }
+-    let lang = current();
+-    lang.i18n().get(lang.lang, context, s)
++    I18N.get(spanish(), context, s)
+ }
+-
+-/// Lowercase translated interface labels and UI search queries in the current language.
+-/// Turkish has two distinct I pairs: `İ`/`i` and `I`/`ı`. Unicode's default casing turns `İ`
+-/// into `i` plus a combining dot, which would prevent `italik` from finding `İtalik`.
+-/// Command IDs and document text keep their own existing casing semantics.
+ pub fn lowercase(s: &str) -> String {
+-    if current().code() != "tr" {
+-        return s.to_lowercase();
+-    }
+-    let mut out = String::with_capacity(s.len());
+-    for c in s.chars() {
+-        match c {
+-            'İ' => out.push('i'),
+-            'I' => out.push('ı'),
+-            _ => out.extend(c.to_lowercase()),
+-        }
+-    }
+-    out
++    s.to_lowercase()
+ }
+-
+-/// `s` in `lang`; strings without a translation come back unchanged.
+-pub fn tr(lang: Lang, s: &str) -> &str {
+-    #[cfg(test)]
+-    if pseudo::on() {
+-        return I18N.t(craft_i18n::Lang::PSEUDO, s);
+-    }
+-    lang.i18n().t(lang.lang, s)
++pub fn tr(_lang: Lang, s: &str) -> &str {
++    I18N.t(spanish(), s)
+ }
+-
+-/// A style's name as the interface shows it: built-in styles (`Normal`, `Heading 2`, `TOC 3`) in
+-/// the current language, styles the author made exactly as named. Display only: the document,
+-/// commands and saved files keep the English name.
+ pub fn style_name(style: &wordcraft_doc::Style) -> String {
+     if style.builtin { builtin_style_name(&style.name) } else { style.name.clone() }
+ }
+@@ -439,68 +146,12 @@ pub fn prefixed(prefix: &str, rest: &str) -> String {
+     fmt(t(&format!("{prefix} {{action}}")), &[("action", t(rest))])
+ }
+ 
+-/// A test language whose WordCraft catalog is `source` (catalog format), so tests of lookup code
+-/// don't depend on the embedded catalogs' wording. `code` selects code-specific rules such as
+-/// Turkish casing.
+-#[cfg(test)]
+-pub(crate) fn fixture_lang(code: &'static str, source: &'static str) -> Lang {
+-    let embedded: &'static craft_i18n::Embedded = Box::leak(Box::new([(code, "", source)]));
+-    let (i18n, _) = I18n::new(embedded, &[code]);
+-    let i18n: &'static I18n = Box::leak(Box::new(i18n));
+-    let lang = i18n.from_code(code).unwrap_or(craft_i18n::Lang::EN);
+-    Lang { lang, catalogs: Some(i18n) }
+-}
+-
+-/// For a test that needs the embedded catalogs: `false`, with a note, when none were embedded
+-/// (`CRAFT_I18N_DIR` unset), so the test can skip; the interface is then English only.
+-#[cfg(test)]
+-pub(crate) fn catalogs_embedded() -> bool {
+-    if CRAFT_I18N.is_empty() {
+-        eprintln!("skipped: built without craft-i18n (CRAFT_I18N_DIR); the interface is English only");
+-    }
+-    !CRAFT_I18N.is_empty()
+-}
+-
+ #[cfg(test)]
+-mod audit;
+-#[cfg(test)]
+-pub(crate) mod pseudo;
+-#[cfg(test)]
+-mod tests;
+-
+-/// `name` lowercased with the Latin accents that occur in language names folded away, so a
+-/// byte-wise sort reads alphabetically. Other scripts are left as they are.
+-fn name_sort_key(name: &str) -> String {
+-    name.chars()
+-        .flat_map(char::to_lowercase)
+-        .map(|c| match c {
+-            'à'..='å' | 'ā' | 'ă' | 'ą' => 'a',
+-            'ç' | 'ć' | 'č' => 'c',
+-            'è'..='ë' | 'ē' | 'ě' | 'ę' | 'ế' | 'ệ' => 'e',
+-            'ì'..='ï' | 'ī' => 'i',
+-            'ñ' | 'ń' | 'ň' => 'n',
+-            'ò'..='ö' | 'ø' | 'ő' => 'o',
+-            'ś' | 'š' => 's',
+-            'ù'..='ü' | 'ū' | 'ů' | 'ű' => 'u',
+-            'ý' | 'ÿ' => 'y',
+-            'ź' | 'ż' | 'ž' => 'z',
+-            c => c,
+-        })
+-        .collect()
+-}
+-
+-#[cfg(test)]
+-mod picker_order_tests {
+-    use super::*;
+-
++mod tests {
+     #[test]
+-    fn picker_lists_english_first_then_names_alphabetically() {
+-        let order = Lang::for_picker();
+-        assert_eq!(order.first().map(|l| l.code()), Some(Lang::EN.code()));
+-        assert_eq!(order.len(), Lang::all().count());
+-        let keys: Vec<String> = order[1..].iter().map(|l| name_sort_key(l.name())).collect();
+-        assert!(keys.windows(2).all(|w| w[0] <= w[1]), "{keys:?}");
+-        assert_eq!(name_sort_key("Čeština"), "cestina");
+-        assert_eq!(name_sort_key("Türkçe"), "turkce");
++    fn solo_espanol() {
++        for pref in ["es", "auto", "ja", "en"] {
++            assert_eq!(super::Lang::from_pref(pref).code(), "es");
++        }
+     }
+ }
+diff --git a/crates/ui-egui/src/keytips.rs b/crates/ui-egui/src/keytips.rs
+index 1b47efa..5643864 100644
+--- a/crates/ui-egui/src/keytips.rs
++++ b/crates/ui-egui/src/keytips.rs
+@@ -392,7 +392,7 @@ fn controls(tab: &str) -> Vec<Control> {
+             c("Full Screen", "view.fullScreen"),
+             c("Macros", "tools.macros"),
+         ],
+-        "Help" => vec![d("Help", "about"), c("Community Discord", "ui.discord"), d("Commands", "commands")],
++        "Help" => vec![d("Commands", "commands")],
+         "Table Design" => {
+             vec![m("Shading", "table.shading"), m("Borders", "table.borders"), c("Border Painter", "table.borderPainter")]
+         }
+diff --git a/crates/ui-egui/src/lib.rs b/crates/ui-egui/src/lib.rs
+index b5ee202..2071c3b 100644
+--- a/crates/ui-egui/src/lib.rs
++++ b/crates/ui-egui/src/lib.rs
+@@ -33,7 +33,6 @@ pub mod chrome;
+ pub mod colors;
+ pub mod content_controls;
+ pub mod control;
+-pub mod credits;
+ pub mod crop;
+ pub mod desktop_theme;
+ pub mod dialogs;
+@@ -43,6 +42,7 @@ pub mod equation_tab;
+ #[cfg(not(target_arch = "wasm32"))]
+ pub mod file_browser;
+ pub mod file_dialogs;
++mod folio;
+ pub mod format_shape;
+ pub mod frame;
+ pub mod guides;
+@@ -202,7 +202,6 @@ pub struct UiState {
+     /// Headings whose sub-headings the Navigation pane hides (#1997); per session, not saved.
+     #[serde(skip)]
+     pub nav_collapsed: std::collections::HashSet<wordcraft_doc::Path>,
+-    pub show_discord: bool,
+     /// User name (File › Options) for comments and tracked changes. `None` (no saved name) keeps
+     /// the default; a saved empty name stays empty (#4368).
+     pub author: Option<String>,
+@@ -326,7 +325,6 @@ impl Default for UiState {
+             pane_places: Default::default(),
+             pane_order: Vec::new(),
+             nav_collapsed: Default::default(),
+-            show_discord: true,
+             author: None,
+             window: None,
+             language: i18n::AUTO.into(),
+diff --git a/crates/ui-egui/src/options.rs b/crates/ui-egui/src/options.rs
+index e4ea116..acf31f1 100644
+--- a/crates/ui-egui/src/options.rs
++++ b/crates/ui-egui/src/options.rs
+@@ -221,7 +221,6 @@ fn general(app: &mut WordApp, ui: &mut Ui) {
+     {
+         let _ = app.run("view.darkMode", json!({"value": dark_page}));
+     }
+-    ui.checkbox(&mut app.ui.show_discord, tl!("Show the community button in the title bar"));
+     default_app_button(app, ui);
+     ui.add_space(8.0);
+     section(ui, "Start-up");
+@@ -470,8 +469,6 @@ fn save(app: &mut WordApp, ui: &mut Ui) {
+ }
+ 
+ fn language(app: &mut WordApp, ui: &mut Ui) {
+-    section(ui, "Interface language");
+-    language_picker(app, ui);
+     // #414 (detect the document's language) goes here.
+     ui.add_space(8.0);
+     section(ui, "Proofing language");
+@@ -724,29 +721,6 @@ fn animations_picker(app: &mut WordApp, ui: &mut Ui) {
+ }
+ 
+ /// Interface language: follow the system (the default) or pick one (#8).
+-fn language_picker(app: &mut WordApp, ui: &mut Ui) {
+-    use crate::i18n::{AUTO, Lang};
+-    // The language names are in their own scripts: fonts for them load from the next frame.
+-    app.want_system_cjk = true;
+-    let system = crate::i18n::system_lang();
+-    let auto_label = crate::i18n::fmt(tl!("Automatic ({language})"), &[("language", system.name())]);
+-    let current = if app.ui.language == AUTO { auto_label.clone() } else { Lang::from_pref(&app.ui.language).name().to_string() };
+-    ui.horizontal(|ui| {
+-        let label = ui.label(tl!("Interface language:"));
+-        let combo = craft_ui::ComboBox::from_id_salt("interface_language").selected_text(current).width(220.0).show_ui(ui, |ui| {
+-            if ui.selectable_label(app.ui.language == AUTO, auto_label.as_str()).clicked() {
+-                let _ = app.run("ui.language", json!({"value": AUTO}));
+-            }
+-            for lang in Lang::for_picker() {
+-                if ui.selectable_label(app.ui.language == lang.code(), lang.name()).clicked() {
+-                    let _ = app.run("ui.language", json!({"value": lang.code()}));
+-                }
+-            }
+-        });
+-        combo.response.labelled_by(label.id);
+-    });
+-    ui.label(RichText::new(tl!("Automatic follows your system's language. Menus and commands change; your documents don't.")).small().weak());
+-}
+ 
+ /// Deserialize `input` over `T`'s defaults one setting at a time: a value of the wrong type is
+ /// dropped (its default stays) instead of failing the whole read. Objects nest (`editing`).
+diff --git a/crates/ui-egui/src/ribbon.rs b/crates/ui-egui/src/ribbon.rs
+index 4cb0ec2..633d0b2 100644
+--- a/crates/ui-egui/src/ribbon.rs
++++ b/crates/ui-egui/src/ribbon.rs
+@@ -127,7 +127,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
+     }
+     // Tab strip.
+     egui::Panel::top("tabs")
+-        .exact_size(30.0)
++        .exact_size(24.0)
+         .frame(egui::Frame::NONE.fill(t.tab_strip).inner_margin(egui::Margin { left: 8, right: 10, top: 0, bottom: 0 }))
+         .show(ui, |ui| {
+             ui.horizontal_centered(|ui| {
+@@ -223,7 +223,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
+                             let shown = if custom { tab } else { tl!(tab) };
+                             let w = plan.widths.get(i).copied().unwrap_or(0.0) - 2.0;
+                             let cut = specs.get(i).is_some_and(|sp| sp.text_w + plan.pad > w + 0.5);
+-                            let (r, resp) = ui.allocate_exact_size(vec2(w, 30.0), Sense::click());
++                            let (r, resp) = ui.allocate_exact_size(vec2(w, 24.0), Sense::click());
+                             if app.ui.keytips == crate::keytips::Phase::Tabs {
+                                 crate::keytips::record_tab(r, tab, &app.ui.keytip_prefix, &mut app.keytip_rects);
+                             } else if app.ui.keytips == crate::keytips::Phase::Legacy {
+@@ -279,7 +279,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
+                             .map(|(((tab, _), shown), _)| (tab.as_str(), *shown))
+                             .collect();
+                         if !left_out.is_empty() {
+-                            let (r, resp) = ui.allocate_exact_size(vec2(MORE_TABS_W, 30.0), Sense::click());
++                            let (r, resp) = ui.allocate_exact_size(vec2(MORE_TABS_W, 24.0), Sense::click());
+                             if resp.hovered() {
+                                 ui.painter().rect_filled(r.shrink2(vec2(0.0, 4.0)), 4.0, t.hover);
+                             }
+diff --git a/crates/ui-egui/src/ribbon/review.rs b/crates/ui-egui/src/ribbon/review.rs
+index 663e71e..a76cd60 100644
+--- a/crates/ui-egui/src/ribbon/review.rs
++++ b/crates/ui-egui/src/ribbon/review.rs
+@@ -173,9 +173,7 @@ pub(super) fn developer(app: &mut WordApp, ui: &mut Ui) {
+ 
+ pub(super) fn help(app: &mut WordApp, ui: &mut Ui) {
+     group(ui, "Help", None, app, |ui, app| {
+-        big(ui, app, "help", "Help", "ui.dialog", json!({"name": "about"}), false);
+         big(ui, app, "checkForUpdates", "Check for\nUpdates…", "ui.checkForUpdates", json!({}), false);
+-        big(ui, app, "discord", "Community\nDiscord", "ui.discord", json!({}), false);
+     });
+     group(ui, "Agents", None, app, |ui, app| {
+         big(ui, app, "macros", "Commands", "ui.dialog", json!({"name": "commands"}), false);
+diff --git a/crates/ui-egui/src/window_ui.rs b/crates/ui-egui/src/window_ui.rs
+index 97cdb2c..e7e468e 100644
+--- a/crates/ui-egui/src/window_ui.rs
++++ b/crates/ui-egui/src/window_ui.rs
+@@ -263,7 +263,6 @@ impl WordApp {
+             legacy_dark: _,
+             nav_tab: _,
+             nav_pane: _,
+-            show_discord: _,
+             author: _,
+             window: _,
+             language: _,
+diff --git a/docs/folio-android.md b/docs/folio-android.md
+new file mode 100644
+index 0000000..3a1c4a9
+--- /dev/null
++++ b/docs/folio-android.md
+@@ -0,0 +1,9 @@
++# Folio Android integration
++
++2026-10-23. Local downstream fork for Folio Office 0.5.0.
++
++Folio owns document tabs, save, undo, redo and the appearance preference. The duplicate native title strip and the Account, About and community promotions are removed. Required copyright and licence notices remain in the Android distribution. Dark document colours affect only rendering; document data and exports retain their original colours.
++
++Validation: WebAssembly release build and Folio browser import/edit/export integration tests. Android APK assembly and signature verification.
++
++The primary menu row is 24 logical pixels (80% of WordCraft's previous 30), with Inter 12.5 pt and semibold selection. GridCraft and DeckCraft take the same pinned, OFL Inter family as an optional build input; model and cell fonts are unchanged.

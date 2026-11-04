@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "scripts": {
+    "test": "node bridge.cjs && node split.cjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.58.0"
+  }
+}

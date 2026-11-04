@@ -1,0 +1,29 @@
+{
+  "app-id": "io.github.pedroguille.LucyBuilder",
+  "runtime": "org.gnome.Sdk",
+  "runtime-version": "51",
+  "sdk": "org.gnome.Sdk",
+  "command": "lucy-builder",
+  "finish-args": [
+    "--share=network",
+    "--share=ipc",
+    "--socket=wayland",
+    "--socket=fallback-x11",
+    "--device=dri",
+    "--allow=devel",
+    "--filesystem=xdg-download/Lucy-Builds:create"
+  ],
+  "modules": [{
+    "name": "lucy-builder",
+    "buildsystem": "simple",
+    "build-commands": [
+      "install -d /app/lib/lucy-builder",
+      "cp -a app engine native-cad README.md LICENSE /app/lib/lucy-builder/",
+      "install -Dm755 flatpak/lucy-builder /app/bin/lucy-builder",
+      "install -Dm644 flatpak/io.github.pedroguille.LucyBuilder.desktop /app/share/applications/io.github.pedroguille.LucyBuilder.desktop",
+      "install -Dm644 flatpak/io.github.pedroguille.LucyBuilder.metainfo.xml /app/share/metainfo/io.github.pedroguille.LucyBuilder.metainfo.xml",
+      "install -Dm644 flatpak/io.github.pedroguille.LucyBuilder.svg /app/share/icons/hicolor/scalable/apps/io.github.pedroguille.LucyBuilder.svg"
+    ],
+    "sources": [{"type": "dir", "path": "..", "skip": ["dist", "build", "tests", "__pycache__"]}]
+  }]
+}

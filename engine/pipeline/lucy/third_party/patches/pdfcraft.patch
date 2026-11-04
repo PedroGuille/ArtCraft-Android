@@ -1,0 +1,2184 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index edd9e68..b9549b4 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -121,7 +121,7 @@ inherits = "dev"
+ incremental = false
+ 
+ [profile.release]
+-lto = "thin"
++lto = false
+ codegen-units = 1
+ 
+ # Vendored, patched third-party crates (see vendor/README.md). Each patch is meant to go upstream.
+diff --git a/apps/pdfcraft-web/index.html b/apps/pdfcraft-web/index.html
+index 46b3a25..2e77fb6 100644
+--- a/apps/pdfcraft-web/index.html
++++ b/apps/pdfcraft-web/index.html
+@@ -1,5 +1,5 @@
+ <!doctype html>
+-<html lang="en">
++<html lang="es">
+   <head>
+     <meta charset="utf-8" />
+     <meta name="viewport" content="width=device-width, initial-scale=1" />
+diff --git a/crates/engine/src/commands.rs b/crates/engine/src/commands.rs
+index 0647726..a191c34 100644
+--- a/crates/engine/src/commands.rs
++++ b/crates/engine/src/commands.rs
+@@ -399,12 +399,10 @@ pub const COMMANDS: &[CommandSpec] = &[
+     c("page.number", "Number pages…", PAGES, None, Assembly, "hash"),
+     c("page.properties", "Page properties…", PAGES, None, Modification, "info"),
+     c("help.shortcuts", "Keyboard shortcuts", HELP, None, Nothing, "circle-help"),
+-    c("help.discord", "Join the ArtCraft Discord", HELP, None, Nothing, "messages-square"),
+     c("help.app_page", "PdfCraft web page", HELP, None, Nothing, "globe"),
+     c("help.github", "PdfCraft on GitHub", HELP, None, Nothing, "code-xml"),
+     c("help.website", "ArtCraft website", HELP, None, Nothing, "external-link"),
+     c("help.check_updates", "Check for updates…", HELP, None, Nothing, "cloud"),
+-    c("help.about", "About PdfCraft", HELP, None, Nothing, "info"),
+ ];
+ 
+ pub fn command(id: &str) -> Option<&'static CommandSpec> {
+diff --git a/crates/engine/src/links.rs b/crates/engine/src/links.rs
+index e1d54d5..6f02b65 100644
+--- a/crates/engine/src/links.rs
++++ b/crates/engine/src/links.rs
+@@ -24,7 +24,6 @@ pub struct Link {
+ 
+ /// In the order they are shown. Discord comes first: it is where people get help fastest.
+ pub const LINKS: &[Link] = &[
+-    Link { command: "help.discord", label: "Join the ArtCraft Discord", url: DISCORD, icon: "messages-square" },
+     Link { command: "help.app_page", label: "PdfCraft web page", url: APP_PAGE, icon: "globe" },
+     Link { command: "help.github", label: "PdfCraft on GitHub", url: GITHUB, icon: "code-xml" },
+     Link { command: "help.website", label: "ArtCraft website", url: WEBSITE, icon: "external-link" },
+diff --git a/crates/ui-egui/src/app.rs b/crates/ui-egui/src/app.rs
+index c326b47..0cedcc4 100644
+--- a/crates/ui-egui/src/app.rs
++++ b/crates/ui-egui/src/app.rs
+@@ -84,7 +84,7 @@ impl PdfCraftApp {
+             right_before_read: None,
+             comments_panel_closed: false,
+             right_panel_closed: false,
+-            quick_tool: QuickTool::Select,
++            quick_tool: QuickTool::Hand,
+             space_hand: None,
+             full_screen_tool: None,
+             comment_prefs: Default::default(),
+@@ -439,6 +439,28 @@ impl eframe::App for PdfCraftApp {
+     /// Each frame's work before drawing: opens, operating-system and control-channel requests,
+     /// the quit guard, shortcuts, and the background jobs' results.
+     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
++        if let Some(dark) = crate::folio::dark() {
++            let preference = if dark { theme::ThemePreference::Dark } else { theme::ThemePreference::Light };
++            if self.theme_preference != preference {
++                self.set_theme_preference(preference);
++            }
++            let colors = if dark {
++                pdfcraft_render::ReadingColors {
++                    params: Some(pdfcraft_render::ReadingParams {
++                        text: [255, 255, 255],
++                        background: [51, 51, 51],
++                        only_black: false,
++                        line_art: true,
++                    }),
++                }
++            } else {
++                pdfcraft_render::ReadingColors::default()
++            };
++            if self.reading_colors != colors {
++                self.set_reading_colors(colors);
++            }
++        }
++
+         self.ctx = Some(ctx.clone());
+         #[cfg(not(target_arch = "wasm32"))]
+         self.window_state.repair(ctx);
+@@ -665,7 +687,6 @@ impl eframe::App for PdfCraftApp {
+         if self.draws_window_frame() {
+             window_controls::resize_edges(&ctx);
+         }
+-        chrome::tab_strip(self, ui);
+         chrome::mode_bar(self, ui);
+         // Whichever way another tab came to the front, it shows instead of the expanded view.
+         if self.all_tools_full && self.all_tools_tab != self.shown_tab() {
+@@ -679,7 +700,11 @@ impl eframe::App for PdfCraftApp {
+             } else {
+                 match self.active {
+                     None if self.combine_showing() => combine_ui::page(self, ui),
+-                    None => home::show(self, ui),
++                    None => {
++                        ui.centered_and_justified(|ui| {
++                            ui.label("Abre un PDF para comenzar");
++                        });
++                    }
+                     Some(index) => match compare_ui::side_by_side(self, index) {
+                         Some((old, new)) => compare_ui::compare_area(self, old, new, ui),
+                         None => canvas::document_area(self, index, ui),
+diff --git a/crates/ui-egui/src/app/control.rs b/crates/ui-egui/src/app/control.rs
+index e4078ef..39844fa 100644
+--- a/crates/ui-egui/src/app/control.rs
++++ b/crates/ui-egui/src/app/control.rs
+@@ -141,7 +141,7 @@ impl PdfCraftApp {
+                         self.dialog
+                     }
+                     "none" => None,
+-                    _ => Some(Dialog::About),
++                    _ => None,
+                 };
+                 if let Some(Dialog::Marks(kind)) = self.dialog {
+                     self.marks_draft.opened(kind);
+diff --git a/crates/ui-egui/src/app/files.rs b/crates/ui-egui/src/app/files.rs
+index 9991047..0f68473 100644
+--- a/crates/ui-egui/src/app/files.rs
++++ b/crates/ui-egui/src/app/files.rs
+@@ -328,6 +328,11 @@ impl PdfCraftApp {
+             self.select_mode(self.default_mode);
+             self.left_open = left_open;
+         }
++        #[cfg(target_arch = "wasm32")]
++        if activate {
++            self.quick_tool = QuickTool::Hand;
++            self.space_hand = None;
++        }
+         if let Some(p) = path {
+             #[cfg(target_os = "macos")]
+             macos_association::repair(std::path::Path::new(&p));
+diff --git a/crates/ui-egui/src/app/prefs.rs b/crates/ui-egui/src/app/prefs.rs
+index 7eddee0..0ee3257 100644
+--- a/crates/ui-egui/src/app/prefs.rs
++++ b/crates/ui-egui/src/app/prefs.rs
+@@ -54,7 +54,7 @@ impl PdfCraftApp {
+         for i in 0..self.views.len() {
+             // Idempotent per document: the engine says whether anything changed.
+             if self.session.set_reading_colors(self.views[i].id, colors) {
+-                self.views[i].invalidate_content();
++                self.views[i].invalidate_palette();
+             }
+         }
+     }
+diff --git a/crates/ui-egui/src/canvas.rs b/crates/ui-egui/src/canvas.rs
+index 56d2674..aae4a37 100644
+--- a/crates/ui-egui/src/canvas.rs
++++ b/crates/ui-egui/src/canvas.rs
+@@ -74,7 +74,7 @@ pub const PT: f32 = 96.0 / 72.0;
+ const GAP: f32 = 14.0;
+ const MARGIN: f32 = 28.0;
+ /// Horizontal gutter that keeps pages clear of the floating quick-action bar.
+-const SIDE: f32 = 70.0;
++const SIDE: f32 = 42.0;
+ 
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+ pub enum Fit {
+diff --git a/crates/ui-egui/src/canvas/bars.rs b/crates/ui-egui/src/canvas/bars.rs
+index 5ea5e4a..5fe4368 100644
+--- a/crates/ui-egui/src/canvas/bars.rs
++++ b/crates/ui-egui/src/canvas/bars.rs
+@@ -294,6 +294,7 @@ fn quick_bar_offset(margin: f32, width: f32) -> f32 {
+ /// The floating quick-action bar in the margin between the side panel and the page.
+ pub(super) fn quick_bar(app: &mut PdfCraftApp, area: Rect, page_left: Option<f32>, ui: &mut egui::Ui) {
+     let t = Tokens::get(ui.ctx());
++    const SCALE: f32 = 0.6;
+     let mut offset = vec2(0.0, 0.0);
+     if app.hotbar.full_side {
+         match app.hotbar.dock.as_deref() {
+@@ -306,8 +307,9 @@ pub(super) fn quick_bar(app: &mut PdfCraftApp, area: Rect, page_left: Option<f32
+     // Last frame's bar: Fill & Sign's Text and Date tools add a wider row of controls to it.
+     let width = ui.ctx().memory(|m| m.area_rect(id)).map_or(QUICK_BAR_WIDTH, |bar| bar.width().max(QUICK_BAR_WIDTH));
+     // The margin starts past a hotbar docked on the left.
+-    let x = quick_bar_offset(page_left.map_or(0.0, |left| left - area.left() - offset.x), width);
+-    let pos = area.left_top() + vec2(x, QUICK_BAR_EDGE) + offset;
++    let x = quick_bar_offset(page_left.map_or(0.0, |left| left - area.left() - offset.x), width * SCALE);
++    let pos = area.left_top() + vec2(x, QUICK_BAR_EDGE * SCALE) + offset;
++    ui.ctx().set_transform_layer(egui::LayerId::new(egui::Order::Middle, id), egui::emath::TSTransform::new(pos.to_vec2() * (1.0 - SCALE), SCALE));
+     egui::Area::new(id).order(egui::Order::Middle).fixed_pos(pos).show(ui.ctx(), |ui| {
+         egui::Frame::NONE
+             .fill(t.card)
+diff --git a/crates/ui-egui/src/canvas/cache.rs b/crates/ui-egui/src/canvas/cache.rs
+index 4b6f6c2..566eb5e 100644
+--- a/crates/ui-egui/src/canvas/cache.rs
++++ b/crates/ui-egui/src/canvas/cache.rs
+@@ -140,6 +140,15 @@ impl DocView {
+     /// Re-render every page and text layer (the document's appearance changed, e.g. a layer
+     /// was toggled). Out-of-date rasters stay on screen until their replacements arrive, so the
+     /// view never flashes blank.
++    /// A viewing-palette change preserves document selection and search state.
++    pub fn invalidate_palette(&mut self) {
++        let selection = self.selection.take();
++        let find = self.find.take();
++        self.invalidate_content();
++        self.selection = selection;
++        self.find = find;
++    }
++
+     pub fn invalidate_content(&mut self) {
+         // Undo, redo and other document-wide changes: a released drawing's preview would be a ghost.
+         self.comments.settling.clear();
+diff --git a/crates/ui-egui/src/chrome.rs b/crates/ui-egui/src/chrome.rs
+index 56125d5..34bcde2 100644
+--- a/crates/ui-egui/src/chrome.rs
++++ b/crates/ui-egui/src/chrome.rs
+@@ -29,294 +29,6 @@ const STRIP_BUTTON: f32 = 28.0;
+ 
+ /// Draw the window's tab strip: home and open controls, shrinkable and scrollable document tabs with drag
+ /// reordering, and platform window controls.
+-pub fn tab_strip(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
+-    let t = Tokens::get(ui.ctx());
+-    // macOS: the strip is the 28 pt title bar, so the traffic lights are centred in it; tabs and
+-    // buttons shrink to keep a margin above and below.
+-    let mac = cfg!(target_os = "macos") && app.integrated_titlebar;
+-    let left = if mac { MAC_CONTENT_LEFT as i8 } else { 8 };
+-    let (tab_h, button) = if mac { (MAC_TITLE_BAR - 2.0, 24.0) } else { (TAB_HEIGHT, STRIP_BUTTON) };
+-    egui::Panel::top("tab_strip")
+-        .exact_size(if mac { MAC_TITLE_BAR } else { TAB_STRIP })
+-        .frame(egui::Frame::NONE.fill(t.titlebar).inner_margin(egui::Margin { left, right: 10, top: 0, bottom: 0 }))
+-        .show(ui, |ui| {
+-            let full = ui.max_rect();
+-            let drag = ui.interact(full, ui.scope_id().with("titledrag"), Sense::click_and_drag());
+-            if drag.drag_started() {
+-                window_controls::desktop_grab(ui.ctx(), egui::ViewportCommand::StartDrag);
+-            }
+-            if drag.double_clicked() {
+-                let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
+-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
+-            }
+-            // GNOME on Wayland: the strip is the header bar, with the window buttons at its ends.
+-            let fullscreen = ui.ctx().input(|i| i.viewport().fullscreen.unwrap_or(false));
+-            let controls = app
+-                .window_controls
+-                .clone()
+-                .filter(|_| app.draws_window_frame() && !fullscreen)
+-                .unwrap_or_else(|| window_controls::Layout { left: Vec::new(), right: Vec::new() });
+-            ui.horizontal_centered(|ui| {
+-                ui.spacing_mut().item_spacing.x = 4.0;
+-                if !controls.left.is_empty() {
+-                    ui.scope(|ui| {
+-                        ui.spacing_mut().item_spacing.x = 0.0;
+-                        window_controls::buttons(ui, &controls.left);
+-                    });
+-                    ui.add_space(window_controls::SIDE_GAP - 4.0);
+-                }
+-                if icons::button(ui, "house", button, app.active.is_none() && !app.combine_showing(), tl!("Home")).clicked() {
+-                    app.active = None;
+-                    app.combine_tab.focused = false;
+-                }
+-                // Reserve the three icon buttons, Discord and their gaps outside the scrolling tabs.
+-                let controls_width = ui.fonts_mut(|f| f.layout_no_wrap("Discord".into(), theme::medium(13.0), t.text).size().x)
+-                    + 3.0 * button
+-                    + 54.0
+-                    + window_controls::width(&controls.right);
+-                // Open stays in sight after the tabs: its icon, text and padding, and the gaps around it.
+-                let open_width = ui.fonts_mut(|f| f.layout_no_wrap(tl!("Open").into(), theme::medium(13.0), t.text).size().x) + 38.0 + 12.0;
+-                let mut tabs_width = (ui.available_width() - controls_width - open_width).max(0.0);
+-                // Tabs shrink to share the strip (names end in "…") and scroll only once they reach
+-                // their narrowest; then arrows either side say so and step through them.
+-                let mut natural: Vec<f32> = Vec::with_capacity(app.views.len() + 1);
+-                for i in 0..app.views.len() {
+-                    if let Some(name) = crate::canvas::tab_label(app, i) {
+-                        natural.push(tab_natural_width(ui, &t, &name));
+-                    }
+-                }
+-                if app.combine_tab.open {
+-                    natural.push(tab_natural_width(ui, &t, tl!("Combine files")));
+-                }
+-                let gap = ui.spacing().item_spacing.x;
+-                let overflow = tabs_overflow(&natural, tabs_width, gap, TAB_MIN_WIDTH);
+-                if overflow {
+-                    tabs_width = (tabs_width - 2.0 * (TAB_ARROW + gap)).max(0.0);
+-                }
+-                let cap = tab_cap(&natural, tabs_width, gap, TAB_MIN_WIDTH);
+-                // Where the tabs were scrolled to last frame, and how far they can go.
+-                let scroll_id = ui.scope_id().with("tab_scroll");
+-                let (offset, max_offset) = ui.data(|d| d.get_temp::<(f32, f32)>(scroll_id)).unwrap_or((0.0, 0.0));
+-                let mut scroll_to = None;
+-                if overflow && arrow(ui, "chevron-left", offset > 0.5, tl!("Scroll tabs left")) {
+-                    scroll_to = Some((offset - (TAB_MIN_WIDTH + gap)).max(0.0));
+-                }
+-                // Keyed by document, not index: a tab dragged past the active one moves it without
+-                // the strip jumping to it.
+-                let state = (app.active_ids().map(|(_, id)| id), app.views.len(), app.combine_showing());
+-                let changed = ui.data_mut(|data| {
+-                    let id = ui.scope_id().with("active_tab");
+-                    let changed = data.get_temp::<(Option<pdfcraft_engine::DocId>, usize, bool)>(id) != Some(state);
+-                    data.insert_temp(id, state);
+-                    changed
+-                });
+-                let mut action = None;
+-                let mut close = None;
+-                // The pointer's x while a tab is dragged, for scrolling at the strip's edges.
+-                let mut drag_x = None;
+-                ui.scope(|ui| {
+-                    ui.style_mut().always_scroll_the_only_direction = true;
+-                    let mut area = egui::ScrollArea::horizontal().id_salt("document_tabs").max_width(tabs_width).auto_shrink([true, true]);
+-                    if let Some(x) = ui.data_mut(|d| d.remove_temp::<f32>(scroll_id.with("to"))) {
+-                        area = area.horizontal_scroll_offset(x);
+-                    }
+-                    let out = area.show(ui, |ui| {
+-                        ui.horizontal_centered(|ui| {
+-                            // Each document tab's index and rect, and the one being dragged
+-                            // (with whether it was just released).
+-                            let mut slots = Vec::with_capacity(app.views.len());
+-                            let mut dragged = None;
+-                            for i in 0..app.views.len() {
+-                                let Some(doc) = app.session.get(app.views[i].id) else { continue };
+-                                let Some(name) = crate::canvas::tab_label(app, i) else { continue };
+-                                let dirty = doc.dirty;
+-                                // A tab showing the document's title names its file on hover.
+-                                let file = (name != doc.name).then_some(doc.name.as_str());
+-                                let response = tab(
+-                                    ui,
+-                                    TabSpec {
+-                                        id: ui.scope_id().with(("document-tab", app.views[i].id)),
+-                                        theme: &t,
+-                                        icon: "file-text",
+-                                        name: &name,
+-                                        file,
+-                                        dirty,
+-                                        active: app.active == Some(i),
+-                                        index: i,
+-                                        cap,
+-                                        height: tab_h,
+-                                        draggable: true,
+-                                    },
+-                                    &mut close,
+-                                );
+-                                slots.push((i, response.rect));
+-                                if response.dragged() || response.drag_stopped() {
+-                                    dragged = Some((i, response.drag_stopped()));
+-                                }
+-                                if changed && app.active == Some(i) && !app.combine_showing() {
+-                                    response.scroll_to_me(Some(Align::Center));
+-                                }
+-                                let id = app.views[i].id;
+-                                let reveal = cfg!(not(target_arch = "wasm32")) && doc.path.is_some();
+-                                response.context_menu(|ui| {
+-                                    if ui.button(tl!("Close Tab")).clicked() {
+-                                        action = Some(crate::tab_context::Action::Close(id));
+-                                        ui.close();
+-                                    }
+-                                    if ui.add_enabled(!app.closed_tabs.is_empty(), egui::Button::new(tl!("Reopen Closed Tab"))).clicked() {
+-                                        action = Some(crate::tab_context::Action::Reopen);
+-                                        ui.close();
+-                                    }
+-                                    let label = if cfg!(target_os = "macos") { tl!("Reveal in Finder") } else { tl!("Reveal in File Explorer") };
+-                                    if ui.add_enabled(reveal, egui::Button::new(label)).clicked() {
+-                                        action = Some(crate::tab_context::Action::Reveal(id));
+-                                        ui.close();
+-                                    }
+-                                });
+-                                if response.clicked() {
+-                                    app.active = Some(i);
+-                                }
+-                                // A middle click closes the tab, as in Acrobat and browsers (#1853);
+-                                // unsaved changes ask first, as the close button does.
+-                                if response.middle_clicked() {
+-                                    close = Some(i);
+-                                }
+-                            }
+-                            // Dragging a tab moves it (#1537): a line marks the gap it will land
+-                            // in, and releasing the button drops it there.
+-                            if let Some((from, released)) = dragged
+-                                && let Some(x) = ui.ctx().pointer_latest_pos().map(|p| p.x)
+-                            {
+-                                let to = drop_index(&slots, from, x);
+-                                if released {
+-                                    if close.is_none() && action.is_none() {
+-                                        app.move_tab(from, to);
+-                                    }
+-                                } else {
+-                                    drag_x = Some(x);
+-                                    ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+-                                    if let Some(marker) = drop_marker(&slots, from, to, ui.spacing().item_spacing.x) {
+-                                        let span = slots.first().map_or(ui.max_rect().y_range(), |(_, r)| r.y_range());
+-                                        // In front of the first tab the gap lies outside the scroll area's
+-                                        // clip rect (#2225): keep the whole line inside it.
+-                                        let clip = ui.clip_rect();
+-                                        let marker = marker.clamp(clip.left() + 1.0, (clip.right() - 1.0).max(clip.left() + 1.0));
+-                                        ui.painter().vline(marker, span.shrink(4.0), Stroke::new(2.0, t.accent));
+-                                    }
+-                                }
+-                            }
+-                            if let Some(i) = close
+-                                && let Some(view) = app.views.get(i)
+-                            {
+-                                action.get_or_insert(crate::tab_context::Action::Close(view.id));
+-                            }
+-                            if let Some(action) = action {
+-                                app.tab_action(action);
+-                            }
+-                            if app.combine_tab.open {
+-                                // After the document tabs; its index can't clash with theirs.
+-                                let mut close = None;
+-                                let response = tab(
+-                                    ui,
+-                                    TabSpec {
+-                                        id: ui.scope_id().with("combine-tab"),
+-                                        theme: &t,
+-                                        icon: "files",
+-                                        name: tl!("Combine files"),
+-                                        file: None,
+-                                        dirty: false,
+-                                        active: app.combine_showing(),
+-                                        index: usize::MAX,
+-                                        cap,
+-                                        height: tab_h,
+-                                        draggable: false,
+-                                    },
+-                                    &mut close,
+-                                );
+-                                if changed && app.combine_showing() {
+-                                    response.scroll_to_me(Some(Align::Center));
+-                                }
+-                                if response.clicked() {
+-                                    app.open_combine_tab();
+-                                }
+-                                if close.is_some() || response.middle_clicked() {
+-                                    app.close_combine_tab();
+-                                }
+-                            }
+-                        });
+-                    });
+-                    let max = (out.content_size.x - out.inner_rect.width()).max(0.0);
+-                    ui.data_mut(|d| d.insert_temp(scroll_id, (out.state.clamped_offset().x, max)));
+-                    // A tab dragged to either edge of a strip that scrolls brings the hidden tabs in.
+-                    if let Some(x) = drag_x
+-                        && max > 0.0
+-                    {
+-                        let step = if x < out.inner_rect.left() + TAB_DRAG_EDGE {
+-                            -TAB_DRAG_STEP
+-                        } else if x > out.inner_rect.right() - TAB_DRAG_EDGE {
+-                            TAB_DRAG_STEP
+-                        } else {
+-                            0.0
+-                        };
+-                        if step != 0.0 {
+-                            ui.data_mut(|d| d.insert_temp(scroll_id.with("to"), (out.state.clamped_offset().x + step).clamp(0.0, max)));
+-                            ui.ctx().request_repaint();
+-                        }
+-                    }
+-                });
+-                if overflow && arrow(ui, "chevron-right", offset < max_offset - 0.5, tl!("Scroll tabs right")) {
+-                    scroll_to = Some((offset + TAB_MIN_WIDTH + gap).min(max_offset));
+-                }
+-                if let Some(x) = scroll_to {
+-                    ui.data_mut(|d| d.insert_temp(scroll_id.with("to"), x));
+-                    ui.ctx().request_repaint();
+-                }
+-                ui.add_space(4.0);
+-                let tip = crate::commands::command_tip(ui.ctx(), tl!("Open a PDF ({key})"), "file.open");
+-                if widgets::ghost_button_sized(ui, "plus", tl!("Open"), tab_h).on_hover_text(tip).clicked() {
+-                    app.open_dialog();
+-                }
+-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+-                    if !controls.right.is_empty() {
+-                        // Laid out left to right inside the right-to-left run, so they read in
+-                        // the desktop's order.
+-                        let size = egui::vec2(window_controls::width(&controls.right) - window_controls::SIDE_GAP, window_controls::BUTTON);
+-                        ui.allocate_ui_with_layout(size, Layout::left_to_right(Align::Center), |ui| {
+-                            ui.spacing_mut().item_spacing.x = 0.0;
+-                            window_controls::buttons(ui, &controls.right);
+-                        });
+-                        ui.add_space(window_controls::SIDE_GAP - 4.0);
+-                    }
+-                    if icons::button(ui, "settings", button, false, tl!("Preferences")).clicked() {
+-                        app.execute("app.preferences");
+-                    }
+-                    let (icon, label) = match app.theme_preference {
+-                        ThemePreference::System => ("monitor", tl!("Use system setting")),
+-                        ThemePreference::Light => ("sun", tl!("Light gray")),
+-                        ThemePreference::Dark => ("moon", tl!("Dark gray")),
+-                    };
+-                    let tip = format!("{}: {label}", tl!("Display theme"));
+-                    let response = icons::button(ui, icon, button, false, &tip);
+-                    // A click cycles System, Light, Dark; a right-click opens the menu.
+-                    if response.clicked() {
+-                        app.execute(match app.theme_preference {
+-                            ThemePreference::System => "view.theme.light",
+-                            ThemePreference::Light => "view.theme.dark",
+-                            ThemePreference::Dark => "view.theme.system",
+-                        });
+-                    }
+-                    egui::Popup::context_menu(&response).id(response.id.with("theme_menu")).show(|ui| appearance_menu(app, ui));
+-                    if icons::button(ui, "circle-help", button, false, tl!("Keyboard shortcuts")).clicked() {
+-                        app.dialog = Some(Dialog::Shortcuts);
+-                    }
+-                    // One click to the community, from anywhere in the app.
+-                    if widgets::ghost_button_sized(ui, "messages-square", "Discord", tab_h).on_hover_text(pdfcraft_engine::links::DISCORD).clicked() {
+-                        app.execute("help.discord");
+-                    }
+-                });
+-            });
+-        });
+-}
+ 
+ /// The right-click menu on the title bar's theme button.
+ fn appearance_menu(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
+@@ -480,16 +192,19 @@ fn tab(ui: &mut egui::Ui, spec: TabSpec<'_>, close: &mut Option<usize>) -> egui:
+ pub fn mode_bar(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
+     let t = Tokens::get(ui.ctx());
+     egui::Panel::top("mode_bar")
+-        .exact_size(48.0)
++        .exact_size(24.0)
+         .frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(10, 0)).stroke(Stroke::new(1.0, t.divider)))
+         .show(ui, |ui| {
+             ui.horizontal_centered(|ui| {
+                 ui.spacing_mut().item_spacing.x = 2.0;
+                 // The menus, unless the native macOS menu bar has them.
+                 if app.native_menu.is_none() {
+-                    app.menu_bar_ui(ui);
++                    ui.scope(|ui| {
++                        ui.style_mut().text_styles.insert(egui::TextStyle::Button, theme::regular(12.5));
++                        app.menu_bar_ui(ui);
++                    });
+                     ui.add_space(6.0);
+-                    ui.painter().vline(ui.cursor().left(), ui.max_rect().y_range().shrink(12.0), Stroke::new(1.0, t.divider));
++                    ui.painter().vline(ui.cursor().left(), ui.max_rect().y_range().shrink(4.0), Stroke::new(1.0, t.divider));
+                     ui.add_space(10.0);
+                 }
+                 // Acrobat's mode bar has no Read tab: reading is what the viewer does with no tool
+diff --git a/crates/ui-egui/src/commands.rs b/crates/ui-egui/src/commands.rs
+index f072b7f..25a304b 100644
+--- a/crates/ui-egui/src/commands.rs
++++ b/crates/ui-egui/src/commands.rs
+@@ -245,7 +245,7 @@ impl PdfCraftApp {
+             "create.clipboard" => self.create_from_clipboard(),
+             "optimize.reduce" => self.reduce_file_size(),
+             "help.shortcuts" => self.dialog = Some(Dialog::Shortcuts),
+-            "help.about" => self.dialog = Some(Dialog::About),
++
+             "help.check_updates" => self.check_for_updates(),
+             _ => return None,
+         }
+@@ -888,7 +888,7 @@ mod tests {
+             assert_eq!(command_shortcut_label(&ctx, "view.read_mode"), "Strg+H");
+             assert_eq!(command_modifier_label(&ctx), "Strg");
+             assert_eq!(Shortcut::cmd_shift("S").label(false), "Ctrl+Shift+S", "engine/control labels keep their stable spelling");
+-            crate::i18n::set_current(crate::i18n::Lang::EN);
++            crate::i18n::set_current(crate::i18n::Lang::ES);
+             assert_eq!(shortcut_label(&ctx, Shortcut::cmd_shift("S")), "Ctrl+Shift+S");
+         }
+         ctx.set_os(OperatingSystem::Mac);
+diff --git a/crates/ui-egui/src/dialogs.rs b/crates/ui-egui/src/dialogs.rs
+index 048d519..c4654fd 100644
+--- a/crates/ui-egui/src/dialogs.rs
++++ b/crates/ui-egui/src/dialogs.rs
+@@ -10,7 +10,6 @@ use crate::{CloseRequest, Dialog, PdfCraftApp, PropsTab, panels::human_size, wid
+ pub(super) mod appearance;
+ pub mod bookmark_styles_ui;
+ pub(super) mod comment_props;
+-pub(super) mod credits;
+ pub(super) mod marks_ui;
+ pub(super) mod pageboxes;
+ pub(super) mod palette;
+@@ -129,7 +128,6 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
+             Dialog::Print => 820.0,
+             Dialog::FieldProps | Dialog::BulkFieldProps => 600.0,
+             Dialog::Preferences => 610.0,
+-            Dialog::About => 780.0,
+             Dialog::PinTool => 540.0,
+             _ => 520.0,
+         });
+@@ -444,11 +442,6 @@ fn dialog_body(ui: &mut egui::Ui, app: &mut PdfCraftApp, dialog: Dialog, req: &m
+                 return false;
+             }
+         }
+-        Dialog::About => {
+-            if !dialog_about(ui, req) {
+-                return false;
+-            }
+-        }
+         Dialog::PinTool => {
+             if !dialog_pin_tool(ui, app, req) {
+                 return false;
+@@ -1534,54 +1527,6 @@ fn dialog_shortcuts(ui: &mut egui::Ui) -> bool {
+ }
+ 
+ /// `Dialog::About` content. Returns `false` when it has its own buttons and no footer is wanted.
+-fn dialog_about(ui: &mut egui::Ui, req: &mut Pending) -> bool {
+-    let t = Tokens::get(ui.ctx());
+-    // Tabs About · Contributors · Models.
+-    let tab_id = egui::Id::unique("about_tab");
+-    let mut tab = ui.data_mut(|d| d.get_temp::<u8>(tab_id)).unwrap_or(0);
+-    ui.horizontal_wrapped(|ui| {
+-        for (i, label) in ["About", "Contributors", "Models"].into_iter().enumerate() {
+-            let i = i as u8;
+-            if widgets::mode_tab(ui, tl!(label), tab == i).clicked() {
+-                tab = i;
+-            }
+-        }
+-    });
+-    ui.data_mut(|d| d.insert_temp(tab_id, tab));
+-    ui.separator();
+-    match tab {
+-        1 => crate::credits::contributors_ui(ui),
+-        2 => crate::credits::models_ui(ui),
+-        _ => {
+-            ui.horizontal(|ui| {
+-                widgets::artcraft_mark(ui, 40.0);
+-                ui.vertical(|ui| {
+-                    ui.label(egui::RichText::new("PdfCraft").font(theme::semibold(20.0)));
+-                    ui.label(crate::i18n::fmt(tl!("Version {v}"), &[("v", &pdfcraft_engine::build_info::version())]));
+-                });
+-            });
+-            ui.add_space(6.0);
+-            ui.label(tl!("A clean-room, open-source PDF application written in Rust. MIT OR Apache-2.0."));
+-            ui.label(
+-                egui::RichText::new(
+-                    "Rendering: hayro (bootstrap) · UI: egui · Icons: Lucide (ISC) · Fonts: Inter, JetBrains Mono, Dancing Script (OFL)",
+-                )
+-                .color(t.text_muted)
+-                .small(),
+-            );
+-            ui.add_space(12.0);
+-            ui.horizontal(|ui| {
+-                ui.label(egui::RichText::new(tl!("Part of")).color(t.text_muted));
+-                widgets::artcraft_logo(ui, 16.0);
+-            });
+-            ui.add_space(6.0);
+-            if let Some(cmd) = widgets::community_links(ui) {
+-                req.link_command = Some(cmd);
+-            }
+-        }
+-    }
+-    true
+-}
+ 
+ fn dialog_pin_tool(ui: &mut egui::Ui, app: &mut PdfCraftApp, req: &mut Pending) -> bool {
+     let t = Tokens::get(ui.ctx());
+diff --git a/crates/ui-egui/src/dialogs/preferences.rs b/crates/ui-egui/src/dialogs/preferences.rs
+index 4960946..61e6bbb 100644
+--- a/crates/ui-egui/src/dialogs/preferences.rs
++++ b/crates/ui-egui/src/dialogs/preferences.rs
+@@ -561,37 +561,8 @@ pub(crate) fn preferences_body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tok
+ /// Content for Card 1: General & Interface
+ fn card_general(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens, ctx: &mut PrefSearchContext) {
+     ui.horizontal(|ui| {
+-        let label = ctx.label_primary(ui, tl!("Interface language"), t);
+-        let (selected, picker) = {
+-            let drawable = |text: &str| picker_text_is_drawable(ui, text);
+-            let selected = crate::i18n::Lang::from_code(&app.language)
+-                .map_or_else(|| tl!("Auto").to_owned(), |language| language.picker_name(drawable).to_owned());
+-            let picker = crate::i18n::Lang::for_picker_by(|language| language.picker_name(drawable))
+-                .into_iter()
+-                .map(|language| (language, language.picker_name(drawable)))
+-                .collect::<Vec<_>>();
+-            (selected, picker)
+-        };
+-        let before = app.language.clone();
+-        craft_ui::ComboBox::from_id_salt("interface-language")
+-            .selected_text(selected)
+-            .width(160.0)
+-            .show_ui(ui, |ui| {
+-                if ui.selectable_value(&mut app.language, crate::i18n::AUTO.to_string(), tl!("Auto")).clicked() {
+-                    ui.close();
+-                }
+-                for (language, name) in &picker {
+-                    if ui.selectable_value(&mut app.language, language.code().to_string(), *name).clicked() {
+-                        ui.close();
+-                    }
+-                }
+-            })
+-            .response
+-            .labelled_by(label.id);
+-        if app.language != before {
+-            crate::i18n::set_current(crate::i18n::Lang::from_pref(&app.language));
+-        }
+-
++        ctx.label_primary(ui, tl!("Interface language"), t);
++        ui.label("Español");
+         ui.add_space(16.0);
+         use crate::ui_scale;
+         let label_size = ctx.label_primary(ui, tl!("Interface size"), t);
+diff --git a/crates/ui-egui/src/folio.rs b/crates/ui-egui/src/folio.rs
+new file mode 100644
+index 0000000..b00890d
+--- /dev/null
++++ b/crates/ui-egui/src/folio.rs
+@@ -0,0 +1,9 @@
++//! Folio Android display preference. This never changes the document model.
++#[cfg(target_arch = "wasm32")]
++pub fn dark() -> Option<bool> {
++    js_sys::Reflect::get(&js_sys::global(), &"__folioDark".into()).ok().and_then(|v| v.as_bool())
++}
++#[cfg(not(target_arch = "wasm32"))]
++pub fn dark() -> Option<bool> {
++    None
++}
+diff --git a/crates/ui-egui/src/home.rs b/crates/ui-egui/src/home.rs
+index 4f5ac9d..8df458d 100644
+--- a/crates/ui-egui/src/home.rs
++++ b/crates/ui-egui/src/home.rs
+@@ -72,209 +72,6 @@ fn tool_card(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens, g: &'static c
+ }
+ 
+ /// Draw the Home page with the welcome text, community card and recent documents.
+-pub fn show(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
+-    let t = Tokens::get(ui.ctx());
+-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+-        egui::Frame::NONE.inner_margin(egui::Margin { left: 36, right: 36, top: 28, bottom: 28 }).show(ui, |ui| {
+-            ui.label(egui::RichText::new(tl!("Welcome to PdfCraft")).font(theme::semibold(24.0)));
+-            ui.label(
+-                egui::RichText::new(tl!("An open-source PDF workbench — local, private, and scriptable."))
+-                    .color(t.text_muted)
+-                    .font(theme::regular(14.0)),
+-            );
+-            ui.add_space(14.0);
+-            if !app.community_card_closed {
+-                egui::Frame::NONE
+-                    .fill(t.card)
+-                    .stroke(Stroke::new(1.0, t.border))
+-                    .corner_radius(CornerRadius::same(12))
+-                    .inner_margin(egui::Margin::same(14))
+-                    .show(ui, |ui| {
+-                        ui.set_width(ui.available_width());
+-                        ui.horizontal(|ui| {
+-                            widgets::artcraft_mark(ui, 28.0);
+-                            ui.vertical(|ui| {
+-                                ui.label(egui::RichText::new(tl!("Join the ArtCraft community")).font(theme::semibold(15.0)));
+-                                ui.label(egui::RichText::new(tl!("Get help, share feedback and follow development on Discord.")).color(t.text_muted));
+-                            });
+-                            // Closed for this run only: the card is back on the next launch.
+-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+-                                if icons::button(ui, "x", 24.0, false, tl!("Close")).clicked() {
+-                                    app.community_card_closed = true;
+-                                }
+-                            });
+-                        });
+-                        ui.add_space(8.0);
+-                        if let Some(cmd) = widgets::community_links(ui) {
+-                            app.execute(cmd);
+-                        }
+-                    });
+-                ui.add_space(22.0);
+-            }
+-
+-            egui::Frame::NONE
+-                .fill(t.card)
+-                .stroke(Stroke::new(1.0, t.border))
+-                .corner_radius(CornerRadius::same(12))
+-                .inner_margin(egui::Margin::same(18))
+-                .show(ui, |ui| {
+-                    ui.set_width(ui.available_width());
+-                    ui.label(egui::RichText::new(tl!("Recommended tools")).font(theme::semibold(15.0)));
+-                    ui.add_space(10.0);
+-                    ui.horizontal_wrapped(|ui| {
+-                        ui.spacing_mut().item_spacing = vec2(14.0, 14.0);
+-                        for id in RECOMMENDED {
+-                            if app.is_tool_pinned(id) {
+-                                continue;
+-                            }
+-                            let Some(g) = catalog::group(id) else { continue };
+-                            tool_card(app, ui, &t, g, false);
+-                        }
+-                        let (rect, resp) = ui.allocate_exact_size(vec2(170.0, 104.0), Sense::click());
+-                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tl!("Open file")));
+-                        let press = theme::Press::track(ui, &resp);
+-                        card_lift(ui, &t, rect, press);
+-                        ui.painter().rect(
+-                            rect,
+-                            CornerRadius::same(10),
+-                            press.fill(t.pasteboard, t.hover, t.pressed),
+-                            Stroke::new(1.0, t.divider),
+-                            egui::StrokeKind::Inside,
+-                        );
+-                        let body = rect.translate(press.offset());
+-                        icons::paint(ui, Rect::from_center_size(body.center() - vec2(0.0, 16.0), vec2(28.0, 28.0)), "folder-open", 26.0, t.icon);
+-                        ui.painter().text(body.center() + vec2(0.0, 22.0), Align2::CENTER_CENTER, tl!("Open file"), theme::semibold(13.0), t.text);
+-                        if theme::hand(resp).clicked() {
+-                            app.open_dialog();
+-                        }
+-                    });
+-                });
+-
+-            ui.add_space(26.0);
+-            let mut unpin_tool = None;
+-            ui.horizontal(|ui| {
+-                ui.label(egui::RichText::new(tl!("Pinned Tools")).font(theme::semibold(17.0)));
+-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+-                    if widgets::ghost_button(ui, "pin", tl!("Pin a tool…")).clicked() {
+-                        app.dialog = Some(crate::Dialog::PinTool);
+-                    }
+-                });
+-            });
+-            ui.add_space(4.0);
+-            if app.pinned_tools.is_empty() {
+-                ui.label(egui::RichText::new(tl!("Pin your favorite tools here for quick access.")).color(t.text_muted));
+-            } else {
+-                ui.add_space(6.0);
+-                let pinned = app.pinned_tools.clone();
+-                ui.horizontal_wrapped(|ui| {
+-                    ui.spacing_mut().item_spacing = vec2(14.0, 14.0);
+-                    for id in &pinned {
+-                        let Some(g) = catalog::group(id) else { continue };
+-                        if let Some(to_unpin) = tool_card(app, ui, &t, g, true) {
+-                            unpin_tool = Some(to_unpin);
+-                        }
+-                    }
+-                });
+-            }
+-            if let Some(id) = unpin_tool {
+-                app.unpin_tool(id);
+-            }
+-
+-            #[cfg(not(target_arch = "wasm32"))]
+-            {
+-                ui.add_space(26.0);
+-                crate::folders_ui::section(app, ui);
+-            }
+-
+-            let mut clear = false;
+-            // Preferences can turn the list off (#5572).
+-            if app.recent_limit > 0 {
+-                ui.add_space(26.0);
+-                ui.horizontal(|ui| {
+-                    ui.label(egui::RichText::new(tl!("Recent")).font(theme::semibold(17.0)));
+-                    if !app.recent.is_empty() {
+-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+-                            let resp = widgets::ghost_button(ui, "trash-2", tl!("Clear"));
+-                            resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tl!("Clear Recent Files")));
+-                            clear = resp.on_hover_text(tl!("Clear Recent Files")).clicked();
+-                        });
+-                    }
+-                });
+-                ui.add_space(8.0);
+-                if app.recent.is_empty() {
+-                    ui.label(egui::RichText::new(tl!("Files you open in PdfCraft appear here. Drop a PDF anywhere to open it.")).color(t.text_muted));
+-                }
+-            }
+-            let mut open = None;
+-            let mut remove = None;
+-            for r in app.recent.iter().take(app.recent_limit) {
+-                let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 46.0), Sense::click());
+-                resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &r.name));
+-                let press = theme::Press::track(ui, &resp);
+-                // The row, not its response: the pointer stays "in" the row over its remove button.
+-                let hovered = ui.rect_contains_pointer(rect);
+-                if hovered && press.hover < 0.04 && press.down < 0.04 {
+-                    // The remove button sits in the row, so the row response may not be hovered.
+-                    ui.painter().rect_filled(rect, CornerRadius::same(8), t.hover);
+-                } else {
+-                    press.wash(ui, rect, 8, false);
+-                }
+-                if hovered {
+-                    // Remove just this file from the list (#430); the file itself is untouched.
+-                    let x_rect = Rect::from_center_size(rect.right_center() - vec2(26.0, 0.0), vec2(28.0, 28.0));
+-                    let x = ui.interact(x_rect, ui.scope_id().with(("remove-recent", &r.path)), Sense::click());
+-                    let label = crate::i18n::fmt(tl!("Remove {name} from Recent"), &[("name", &r.name)]);
+-                    x.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
+-                    if x.hovered() {
+-                        ui.painter().rect_filled(x_rect, CornerRadius::same(6), t.pressed);
+-                    }
+-                    icons::paint(ui, x_rect.shrink(6.0), "x", 16.0, t.icon);
+-                    if x.on_hover_text(tl!("Remove from Recent")).clicked() {
+-                        remove = Some(r.path.clone());
+-                    }
+-                }
+-                let body = rect.translate(press.offset());
+-                icons::paint(
+-                    ui,
+-                    Rect::from_min_size(body.min + vec2(10.0, 11.0), vec2(24.0, 24.0)),
+-                    "file-text",
+-                    22.0,
+-                    egui::Color32::from_rgb(0xE0, 0x3E, 0x3E),
+-                );
+-                // Room on the right for the remove button.
+-                let detail = ui.painter().text(
+-                    body.right_center() - vec2(48.0, 0.0),
+-                    Align2::RIGHT_CENTER,
+-                    format!("{}  ·  {}", crate::i18n::trn(crate::i18n::current(), r.pages as u64, "{n} page", "{n} pages"), human_size(r.size)),
+-                    theme::regular(12.0),
+-                    t.text_muted,
+-                );
+-                // The name and path stop short of the page count; hovering shows the whole path.
+-                let width = detail.left() - 16.0 - (body.left() + 46.0);
+-                widgets::row_text(ui, body.min + vec2(46.0, 15.0), r.name.as_str(), theme::medium(13.5), t.text, width);
+-                widgets::row_text(ui, body.min + vec2(46.0, 32.0), r.path.as_str(), theme::regular(11.0), t.text_faint, width);
+-                if theme::hand(resp).on_hover_text(&r.path).clicked() {
+-                    open = Some(r.path.clone());
+-                }
+-            }
+-            if let Some(p) = open {
+-                app.open_recent(&p);
+-            }
+-            if let Some(p) = remove {
+-                app.recent.retain(|r| r.path != p);
+-            }
+-            if clear {
+-                app.execute("file.clear_recent");
+-            }
+-            ui.add_space(20.0);
+-            widgets::section_title(ui, tl!("Privacy"));
+-            ui.label(
+-                egui::RichText::new(tl!("PdfCraft works offline. No telemetry, no account, and no cloud processing unless you add a provider."))
+-                    .color(t.text_muted),
+-            );
+-        });
+-    });
+-}
+ 
+ #[cfg(test)]
+ mod tests {
+diff --git a/crates/ui-egui/src/i18n.rs b/crates/ui-egui/src/i18n.rs
+index 3ac16d6..9e3370e 100644
+--- a/crates/ui-egui/src/i18n.rs
++++ b/crates/ui-egui/src/i18n.rs
+@@ -1,669 +1,119 @@
+-//! UI localisation. Strings in code stay English and are the default lookup keys; a per-language
+-//! catalog (`*.tsv`, see `ja.tsv` for the format) maps them to display text at render time. Command
+-//! ids, document text, file names, the control channel, the CLI and MCP never see translated text,
+-//! so agents and scripts are unaffected. A string without a translation is shown in English, so
+-//! coverage can grow incrementally.
+-//!
+-//! The system is the one PhotoCraft uses (`photocraft/crates/ui-egui/src/i18n`), so catalogs and
+-//! habits carry over between the two apps.
+-//!
+-//! # Adding a language
+-//! 1. Add `xx.tsv` next to `ja.tsv` (copy its header; translate from the *meaning* of the English
+-//!    text, clean-room, see `ja.tsv`).
+-//! 2. Add one row to [`LANGUAGES`] (code, native name, catalog, plural rule).
+-//!
+-//! That is all: the Preferences dropdown, the system-locale match and the catalog tests (parse,
+-//! placeholders, plural forms) pick it up from the registry.
+-//!
+-//! # Looking strings up
+-//! - `tl!` / [`t`]: a plain string in the current language. [`tr`]: in a given one.
+-//! - [`tr_ctx`] (`tl_ctx!` in UI code): when one English word needs different translations.
+-//! - [`tr_id`]: a command-id keyed string with the English label as fallback (menu items), so a
+-//!   translation survives rewording of the English text and can differ per command.
+-//! - [`trn`]: plural-aware (`{n}` is filled in). [`fmt`]: fill `{name}` placeholders after [`tr`];
+-//!   translators may reorder placeholders freely.
+-
++//! Interfaz de Lucy: solo español. Las claves técnicas no modifican los documentos.
+ mod catalog;
+-
++use catalog::Catalog;
+ use std::cell::Cell;
+ use std::sync::OnceLock;
+ 
+-use catalog::Catalog;
+-
+-/// The `language` preference value that follows the system locale.
+-pub const AUTO: &str = "auto";
+-
+-/// One supported UI language.
++/// Valor compatible con las preferencias de versiones anteriores.
++pub const AUTO: &str = "es";
+ pub struct LangInfo {
+-    /// BCP 47 code, lowercase (`ja`, `zh-hans`, `pt-br`). Also the `language` preference value.
+     pub code: &'static str,
+-    /// The language's name in itself, shown in the Preferences dropdown.
+     pub name: &'static str,
+-    /// Catalog file contents (empty for the built-in English).
+     pub source: &'static str,
+-    /// Plural form index for a count (English: 0 = one, 1 = other; Japanese: always 0). A catalog's
+-    /// `@plural` entries list one form per index.
+     pub plural: fn(u64) -> usize,
+-    /// The language is written right to left. Catalogs stay in logical order: the egui 0.37 fork
+-    /// owns bidi shaping/reordering (E5/E12), so preordering here would reverse Arabic twice.
+     pub rtl: bool,
+     catalog: OnceLock<Catalog>,
+ }
+-
+ fn plural_one_other(n: u64) -> usize {
+     usize::from(n != 1)
+ }
+-
+-fn plural_none(_: u64) -> usize {
+-    0
+-}
+-
+-/// Romanian (CLDR `ro`): 1 is `one`; 0 and numbers whose last two digits are 1–19 (2, 19, 101,
+-/// 119) are `few`; everything else (20, 100, 120) is `other`, the form with "de" ("20 de pagini").
+-fn plural_ro(n: u64) -> usize {
+-    if n == 1 {
+-        0
+-    } else if n == 0 || (1..=19).contains(&(n % 100)) {
+-        1
+-    } else {
+-        2
+-    }
+-}
+-
+-/// Lithuanian: one (ending in 1 except 11), few (ending in 2–9 except 12–19), other otherwise.
+-fn plural_lithuanian(n: u64) -> usize {
+-    match (n % 10, n % 100) {
+-        (1, 11) => 2,
+-        (1, _) => 0,
+-        (2..=9, 12..=19) => 2,
+-        (2..=9, _) => 1,
+-        _ => 2,
+-    }
+-}
+-
+-/// Czech: 1 → one, 2–4 → few, everything else (0, 5+) → other.
+-fn plural_cs(n: u64) -> usize {
+-    match n {
+-        1 => 0,
+-        2..=4 => 1,
+-        _ => 2,
+-    }
+-}
+-
+-/// Portuguese: 0 and 1 take the singular, everything else the plural.
+-fn plural_pt(n: u64) -> usize {
+-    usize::from(n > 1)
+-}
+-
+-/// French (CLDR `fr`): 0 and 1 take the singular, everything else the plural.
+-fn plural_fr(n: u64) -> usize {
+-    usize::from(n > 1)
+-}
+-
+-/// Russian: 1 (but not 11) is `one`, 2–4 (but not 12–14) `few`, everything else `many`.
+-fn plural_russian(n: u64) -> usize {
+-    match n % 100 {
+-        11..=14 => 2,
+-        _ => match n % 10 {
+-            1 => 0,
+-            2..=4 => 1,
+-            _ => 2,
+-        },
+-    }
+-}
+-
+-/// Ukrainian (CLDR `uk`, integer counts): one (1, 21), few (2–4, 22–24), many (0, 5–19).
+-/// Counts ending in 11–14 always take many, regardless of the last digit.
+-fn plural_ukrainian(n: u64) -> usize {
+-    match n % 100 {
+-        11..=14 => 2,
+-        _ => match n % 10 {
+-            1 => 0,
+-            2..=4 => 1,
+-            _ => 2,
+-        },
+-    }
+-}
+-
+-/// Arabic (CLDR `ar`, integer counts): zero (0), one (1), two (2), few (3–10, 103–110),
+-/// many (11–99, 111–199), other (100–102, 200–202).
+-fn plural_arabic(n: u64) -> usize {
+-    match (n, n % 100) {
+-        (0, _) => 0,
+-        (1, _) => 1,
+-        (2, _) => 2,
+-        (_, 3..=10) => 3,
+-        (_, 11..=99) => 4,
+-        _ => 5,
+-    }
+-}
+-
+-/// Polish integer counts: 1 is one; endings 2–4 except 12–14 are few; the rest are many.
+-fn plural_polish(n: u64) -> usize {
+-    match (n, n % 100, n % 10) {
+-        (1, _, _) => 0,
+-        (_, 12..=14, _) => 2,
+-        (_, _, 2..=4) => 1,
+-        _ => 2,
+-    }
+-}
+-
+-/// Slovene (CLDR `sl`): one (1, 101, 201 ...) | two (2, 102 ...) | few (3, 4, 103 ...) | other.
+-fn plural_sl(n: u64) -> usize {
+-    match n % 100 {
+-        1 => 0,
+-        2 => 1,
+-        3 | 4 => 2,
+-        _ => 3,
+-    }
+-}
+-
+-/// The registry. English first: it is the fallback and the source language.
+-pub static LANGUAGES: [LangInfo; 35] = [
+-    LangInfo { code: "en", name: "English", source: "", plural: plural_one_other, rtl: false, catalog: OnceLock::new() },
+-    LangInfo { code: "ja", name: "日本語", source: include_str!("i18n/ja.tsv"), plural: plural_none, rtl: false, catalog: OnceLock::new() },
+-    // Simplified Chinese; `zh`, `zh-CN`, `zh-SG` and `zh-Hans-*` locales resolve here (see `candidates`).
+-    LangInfo {
+-        code: "zh-hans",
+-        name: "简体中文",
+-        source: include_str!("i18n/zh-hans.tsv"),
+-        plural: plural_none,
+-        rtl: false,
+-        catalog: OnceLock::new(),
+-    },
+-    // Traditional Chinese in the vocabulary used in Taiwan; `zh-TW`, `zh-HK`, `zh-MO` and `zh-Hant-*`
+-    // locales all resolve here (see `candidates`).
+-    LangInfo {
+-        code: "zh-hant",
+-        name: "繁體中文",
+-        source: include_str!("i18n/zh-hant.tsv"),
+-        plural: plural_none,
+-        rtl: false,
+-        catalog: OnceLock::new(),
+-    },
+-    LangInfo { code: "cs", name: "Čeština", source: include_str!("i18n/cs.tsv"), plural: plural_cs, rtl: false, catalog: OnceLock::new() },
+-    // Brazilian Portuguese; `pt`, `pt-BR` and `pt-PT` locales all resolve here (see `candidates`).
+-    LangInfo {
+-        code: "pt-br",
+-        name: "Português (Brasil)",
+-        source: include_str!("i18n/pt-br.tsv"),
+-        plural: plural_pt,
+-        rtl: false,
+-        catalog: OnceLock::new(),
+-    },
+-    // German (informal "du"); every `de-*` locale (`de-DE`, `de-AT`, `de-CH` ...) resolves here.
+-    LangInfo { code: "de", name: "Deutsch", source: include_str!("i18n/de.tsv"), plural: plural_one_other, rtl: false, catalog: OnceLock::new() },
+-    // Spanish (European vocabulary); every `es-*` locale (`es-ES`, `es-MX`, `es-419` ...) resolves here.
+-    LangInfo { code: "es", name: "Español", source: include_str!("i18n/es.tsv"), plural: plural_one_other, rtl: false, catalog: OnceLock::new() },
+-    // French; every `fr-*` locale (`fr-FR`, `fr-CA`, `fr-BE` ...) resolves here.
+-    LangInfo { code: "fr", name: "Français", source: include_str!("i18n/fr.tsv"), plural: plural_fr, rtl: false, catalog: OnceLock::new() },
+-    // Russian; every `ru-*` locale (`ru-RU`, `ru-BY`, `ru-KZ` ...) resolves here.
+-    LangInfo {
+-        code: "ru", name: "Русский", source: include_str!("i18n/ru.tsv"), plural: plural_russian, rtl: false, catalog: OnceLock::new()
+-    },
+-    // Kazakh; every `kk-*` locale (`kk-KZ`, `kk-KZ.UTF-8`) resolves here.
+-    LangInfo {
+-        code: "kk", name: "Қазақша", source: include_str!("i18n/kk.tsv"), plural: plural_one_other, rtl: false, catalog: OnceLock::new()
+-    },
+-    // Bulgarian; every `bg-*` locale (`bg-BG`) resolves here.
+-    LangInfo {
+-        code: "bg", name: "Български", source: include_str!("i18n/bg.tsv"), plural: plural_one_other, rtl: false, catalog: OnceLock::new()
+-    },
+-    // Telugu; every `te-*` locale (`te-IN`) resolves here.
+-    LangInfo {
+-        code: "te", name: "తెలుగు", source: include_str!("i18n/te.tsv"), plural: plural_one_other, rtl: false, catalog: OnceLock::new()
+-    },
+-    // Hungarian; every `hu-*` locale (`hu-HU`) resolves here.
+-    LangInfo { code: "hu", name: "Magyar", source: include_str!("i18n/hu.tsv"), plural: plural_one_other, rtl: false, catalog: OnceLock::new() },
+-    // Ukrainian; every `uk-*` locale (`uk-UA`, `uk_UA.UTF-8`) resolves here.
+-    LangInfo {
+-        code: "uk", name: "Українська", source: include_str!("i18n/uk.tsv"), plural: plural_ukrainian, rtl: false, catalog: OnceLock::new()
+-    },
+-    // Italian; every `it-*` locale (`it-IT`) resolves here.
+-    LangInfo { code: "it", name: "Italiano", source: include_str!("i18n/it.tsv"), plural: plural_one_other, rtl: false, catalog: OnceLock::new() },
+-    // Arabic (Modern Standard, Western digits); every `ar-*` locale (`ar-MA`, `ar-EG`, `ar-SA` ...)
+-    // resolves here. Right to left: see `LangInfo::rtl`.
+-    LangInfo { code: "ar", name: "العربية", source: include_str!("i18n/ar.tsv"), plural: plural_arabic, rtl: true, catalog: OnceLock::new() },
+-    // Central Kurdish (Sorani); every `ckb-*` locale (`ckb-IQ`, `ckb-IR`) resolves here. Right to
+-    // left like Arabic: see `LangInfo::rtl`. CLDR `ckb` counts have two forms (one, other).
+-    LangInfo {
+-        code: "ckb",
+-        name: "کوردیی ناوەندی",
+-        source: include_str!("i18n/ckb.tsv"),
+-        plural: plural_one_other,
+-        rtl: true,
+-        catalog: OnceLock::new(),
+-    },
+-    // Persian (Farsi); every `fa-*` locale (`fa-IR`, `fa_IR.UTF-8`, `fa-AF` ...) resolves here. Right
+-    // to left like Arabic: see `LangInfo::rtl`. CLDR `fa` counts have two forms (one: i = 0 or n = 1,
+-    // other), which for whole counts is the French rule, so `@plural` entries list two forms.
+-    LangInfo { code: "fa", name: "فارسی", source: include_str!("i18n/fa.tsv"), plural: plural_fr, rtl: true, catalog: OnceLock::new() },
+-    // Polish; every `pl-*` locale (`pl-pl`, `pl_pl.UTF-8`) resolves here.
+-    LangInfo { code: "pl", name: "Polski", source: include_str!("i18n/pl.tsv"), plural: plural_polish, rtl: false, catalog: OnceLock::new() },
+-    // Slovene; every `sl-*` locale (`sl-SI`) resolves here. Four plural forms (one, two, few, other).
+-    LangInfo { code: "sl", name: "Slovenščina", source: include_str!("i18n/sl.tsv"), plural: plural_sl, rtl: false, catalog: OnceLock::new() },
+-    LangInfo {
+-        code: "el", name: "Ελληνικά", source: include_str!("i18n/el.tsv"), plural: plural_one_other, rtl: false, catalog: OnceLock::new()
+-    },
+-    // Turkish; every `tr-*` locale (`tr-TR`, `tr_TR.UTF-8`) resolves here.
+-    LangInfo { code: "tr", name: "Türkçe", source: include_str!("i18n/tr.tsv"), plural: plural_none, rtl: false, catalog: OnceLock::new() },
+-    // Lithuanian; every `lt-*` locale (`lt-LT`, `lt_LT.UTF-8`) resolves here. Three plural forms (one, few, other).
+-    LangInfo { code: "lt", name: "Lietuvių", source: include_str!("i18n/lt.tsv"), plural: plural_lithuanian, rtl: false, catalog: OnceLock::new() },
+-    // Indonesian; every `id-*` locale (`id-ID`, `id_ID.UTF-8`) resolves here. CLDR `id` counts have
+-    // one form ("other"), so `@plural` entries list a single form.
+-    LangInfo { code: "id", name: "Bahasa Indonesia", source: include_str!("i18n/id.tsv"), plural: plural_none, rtl: false, catalog: OnceLock::new() },
+-    // Vietnamese; every `vi-*` locale (`vi-VN`, `vi_VN.UTF-8`) resolves here. CLDR `vi` counts have
+-    // one form ("other"), so `@plural` entries list a single form.
+-    LangInfo { code: "vi", name: "Tiếng Việt", source: include_str!("i18n/vi.tsv"), plural: plural_none, rtl: false, catalog: OnceLock::new() },
+-    // Finnish; every `fi-*` locale (`fi-FI`, `fi_FI.UTF-8`) resolves here. Two plural forms (one, other):
+-    // the partitive singular follows any number but 1 (`1 sivu`, `2 sivua`).
+-    LangInfo { code: "fi", name: "Suomi", source: include_str!("i18n/fi.tsv"), plural: plural_one_other, rtl: false, catalog: OnceLock::new() },
+-    // Albanian; every `sq-*` locale (`sq-AL`, `sq_AL.UTF-8`, `sq-XK`) resolves here. One/other plural, like English.
+-    LangInfo { code: "sq", name: "Shqip", source: include_str!("i18n/sq.tsv"), plural: plural_one_other, rtl: false, catalog: OnceLock::new() },
+-    // Thai; every `th-*` locale (`th-TH`, `th_TH.UTF-8`) resolves here. No grammatical plural.
+-    LangInfo { code: "th", name: "ไทย", source: include_str!("i18n/th.tsv"), plural: plural_none, rtl: false, catalog: OnceLock::new() },
+-    // Catalan; every `ca-*` locale (`ca-ES`, `ca_ES.UTF-8`, `ca_ES@valencia`) resolves here.
+-    LangInfo { code: "ca", name: "Català", source: include_str!("i18n/ca.tsv"), plural: plural_one_other, rtl: false, catalog: OnceLock::new() },
+-    // Romanian; every `ro-*` locale (`ro-RO`, `ro_RO.UTF-8`, `ro-MD`) resolves here. Three plural forms (one, few, other).
+-    LangInfo { code: "ro", name: "Română", source: include_str!("i18n/ro.tsv"), plural: plural_ro, rtl: false, catalog: OnceLock::new() },
+-    // Lao; every `lo-*` locale (`lo-LA`, `lo_LA.UTF-8` ...) resolves here.
+-    LangInfo {
+-        code: "lo", name: "ພາສາລາວ", source: include_str!("i18n/lo.tsv"), plural: plural_none, rtl: false, catalog: OnceLock::new()
+-    },
+-    // Hindi; every `hi-*` locale (`hi-IN`, `hi_IN.UTF-8`) resolves here. CLDR `hi` has "one"
+-    // (0 and 1) and "other", but the catalog's nouns are the same in both ("{n} पृष्ठ"), so
+-    // `@plural` entries list a single form.
+-    LangInfo {
+-        code: "hi", name: "हिन्दी", source: include_str!("i18n/hi.tsv"), plural: plural_none, rtl: false, catalog: OnceLock::new()
+-    },
+-    // Korean; every `ko-*` locale (`ko-KR`, `ko_KR.UTF-8`) resolves here. CLDR `ko` counts have
+-    // one form ("other"), so `@plural` entries list a single form.
+-    LangInfo { code: "ko", name: "한국어", source: include_str!("i18n/ko.tsv"), plural: plural_none, rtl: false, catalog: OnceLock::new() },
+-    // Norwegian Bokmål; every `nb-*` locale resolves here, and so do general Norwegian (`no-*`) and
+-    // Nynorsk (`nn-*`), which have no catalog of their own (see `candidates`).
+-    LangInfo {
+-        code: "nb",
+-        name: "Norsk bokmål",
+-        source: include_str!("i18n/nb.tsv"),
+-        plural: plural_one_other,
+-        rtl: false,
+-        catalog: OnceLock::new(),
+-    },
+-];
+-
++pub static LANGUAGES: [LangInfo; 1] =
++    [LangInfo { code: "es", name: "Español", source: include_str!("i18n/es.tsv"), plural: plural_one_other, rtl: false, catalog: OnceLock::new() }];
+ impl LangInfo {
+-    /// How many plural forms the language's `@plural` entries list.
+-    fn plural_forms(&self) -> usize {
+-        (0..=1000).map(self.plural).max().unwrap_or(0).saturating_add(1)
+-    }
+-
+-    /// Return the parsed catalogue, building it on first use and warning about entries that fall back to
+-    /// English.
+     fn catalog(&self) -> &Catalog {
+         self.catalog.get_or_init(|| {
+-            let (catalog, errors) = Catalog::parse(self.source, self.plural_forms());
++            let (catalog, errors) = Catalog::parse(self.source, 2);
+             for error in errors {
+-                log::warn!("{} interface catalog: {error}; that entry shows in English", self.code);
++                log::warn!("Catálogo español: {error}");
+             }
+-            // Catalogs keep logical text: the fork shapes and reorders each run once. Accessibility
+-            // names, copied text and search therefore see the same logical string as the source.
+             catalog
+         })
+     }
+ }
+-
+-/// A language the UI can be shown in (a handle into [`LANGUAGES`]).
+-#[derive(Clone, Copy)]
+-pub struct Lang(&'static LangInfo);
+-
+-impl std::fmt::Debug for Lang {
+-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+-        write!(f, "Lang({})", self.0.code)
+-    }
+-}
+-
+-impl PartialEq for Lang {
+-    fn eq(&self, other: &Self) -> bool {
+-        self.0.code == other.0.code
+-    }
+-}
+-
+-impl Eq for Lang {}
+-
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub struct Lang;
+ impl Lang {
+-    pub const EN: Lang = Lang(&LANGUAGES[0]);
+-
++    pub const ES: Self = Self;
+     pub fn code(self) -> &'static str {
+-        self.0.code
+-    }
+-
+-    /// A language by its exact code.
+-    pub fn from_code(code: &str) -> Option<Lang> {
+-        LANGUAGES.iter().find(|l| l.code.eq_ignore_ascii_case(code)).map(Lang)
+-    }
+-
+-    /// Resolve the `language` preference: a language code, or [`AUTO`] (and anything unknown,
+-    /// e.g. a code from a newer version) to follow the system locale.
+-    pub fn from_pref(pref: &str) -> Lang {
+-        Lang::from_code(pref).unwrap_or_else(system_lang)
+-    }
+-
+-    /// Every registered language.
+-    pub fn all() -> impl Iterator<Item = Lang> {
+-        LANGUAGES.iter().map(Lang)
+-    }
+-
+-    /// Every registered language in the order a picker lists them: English first (the source
+-    /// language and the fallback), then the rest by their own name with accents folded, so
+-    /// Čeština sits under C rather than after Z. Names in other scripts follow the Latin ones in
+-    /// code point order: Greek, Cyrillic, Arabic, then the CJK languages.
+-    pub fn for_picker() -> Vec<Lang> {
+-        Self::for_picker_by(Lang::name)
+-    }
+-
+-    /// [`for_picker`](Self::for_picker), ordered by the names the picker actually shows.
+-    ///
+-    /// `shown` must return each language's displayed name. Pass [`Lang::picker_name`] to keep a
+-    /// Latin-script fallback with the other Latin names when a script's face is missing, rather
+-    /// than sorting it into a block of unrenderable labels.
+-    pub fn for_picker_by(mut shown: impl FnMut(Lang) -> &'static str) -> Vec<Lang> {
+-        let mut rest: Vec<Lang> = Lang::all().filter(|l| l.code() != Lang::EN.code()).collect();
+-        rest.sort_by_cached_key(|l| name_sort_key(shown(*l)));
+-        std::iter::once(Lang::EN).chain(rest).collect()
++        "es"
+     }
+-
+     pub fn name(self) -> &'static str {
+-        self.0.name
++        "Español"
+     }
+-
+-    /// The language's name in English, used by [`picker_name`](Self::picker_name) when this
+-    /// build's fonts cannot draw [`name`](Self::name).
+     pub fn english_name(self) -> &'static str {
+-        match self.code() {
+-            "en" => "English",
+-            "ja" => "Japanese",
+-            "zh-hans" => "Simplified Chinese",
+-            "zh-hant" => "Traditional Chinese",
+-            "cs" => "Czech",
+-            "pt-br" => "Portuguese (Brazil)",
+-            "de" => "German",
+-            "es" => "Spanish",
+-            "fr" => "French",
+-            "ru" => "Russian",
+-            "kk" => "Kazakh",
+-            "bg" => "Bulgarian",
+-            "te" => "Telugu",
+-            "hu" => "Hungarian",
+-            "uk" => "Ukrainian",
+-            "it" => "Italian",
+-            "ar" => "Arabic",
+-            "ckb" => "Central Kurdish",
+-            "fa" => "Persian",
+-            "pl" => "Polish",
+-            "sl" => "Slovenian",
+-            "el" => "Greek",
+-            "tr" => "Turkish",
+-            "lt" => "Lithuanian",
+-            "id" => "Indonesian",
+-            "vi" => "Vietnamese",
+-            "fi" => "Finnish",
+-            "nb" => "Norwegian Bokmål",
+-            "sq" => "Albanian",
+-            "th" => "Thai",
+-            "ca" => "Catalan",
+-            "ro" => "Romanian",
+-            "lo" => "Lao",
+-            "hi" => "Hindi",
+-            "ko" => "Korean",
+-            // Only reached if a language is added to `LANGUAGES` without an English name; the
+-            // code still tells the reader which entry it is.
+-            _ => self.0.code,
+-        }
+-    }
+-
+-    /// The name to show in the language picker: the native name when the current fonts can draw
+-    /// it, otherwise the English name. With egui 0.37's default `MissingGlyphPolicy::Panic`, a
+-    /// native name whose script has no face (for example Hindi in a build without a Devanagari
+-    /// face and with installed fonts turned off) would otherwise abort while the list opens.
+-    pub fn picker_name(self, drawable: impl FnOnce(&str) -> bool) -> &'static str {
+-        if drawable(self.name()) { self.name() } else { self.english_name() }
++        "Español"
+     }
+-
+-    /// Whether the language is written right to left. Lookups stay logical; the egui fork
+-    /// shapes and reorders each run for display (see [`LangInfo::rtl`]).
+-    pub fn rtl(self) -> bool {
+-        self.0.rtl
++    pub fn picker_name(self, _drawable: impl FnOnce(&str) -> bool) -> &'static str {
++        "Español"
+     }
+-
+-    fn catalog(self) -> &'static Catalog {
+-        self.0.catalog()
++    pub fn for_picker_by(_shown: impl FnMut(Self) -> &'static str) -> Vec<Self> {
++        vec![Self::ES]
+     }
+-}
+-
+-/// The canonical `language` preference for user input: [`AUTO`] or a registered code (any case).
+-/// `None` for anything else, so callers can keep the current setting.
+-pub fn normalize_pref(pref: &str) -> Option<&'static str> {
+-    if pref.eq_ignore_ascii_case(AUTO) {
+-        return Some(AUTO);
+-    }
+-    Lang::from_code(pref).map(Lang::code)
+-}
+-
+-/// Candidate language codes for a locale tag, most specific first: `zh_TW.UTF-8` →
+-/// `zh-tw`, `zh-hant`, `zh`.
+-fn candidates(tag: &str) -> Vec<String> {
+-    let base = tag.split(['.', '@']).next().unwrap_or("").replace('_', "-").to_ascii_lowercase();
+-    let parts: Vec<&str> = base.split('-').filter(|p| !p.is_empty()).collect();
+-    let Some(&primary) = parts.first() else { return Vec::new() };
+-    let mut out = Vec::new();
+-    for n in (1..=parts.len()).rev() {
+-        out.push(parts.get(..n).unwrap_or_default().join("-"));
+-    }
+-    if primary == "zh" && !parts.iter().any(|p| matches!(*p, "hans" | "hant")) {
+-        // Chinese by region when no script is given.
+-        let script = if parts.iter().any(|p| matches!(*p, "tw" | "hk" | "mo")) { "zh-hant" } else { "zh-hans" };
+-        out.insert(out.len().saturating_sub(1), script.to_string());
+-    }
+-    if primary == "pt" && !out.iter().any(|c| c == "pt-br") {
+-        // The only Portuguese catalog is Brazilian; other regions use it rather than English.
+-        out.insert(out.len().saturating_sub(1), "pt-br".to_string());
+-    }
+-    if matches!(primary, "no" | "nn") {
+-        // The only Norwegian catalog is Bokmål. `no` (Norwegian in general) and Nynorsk readers use
+-        // it rather than English; last, so a catalog of their own would win.
+-        out.push("nb".to_string());
++    pub fn plural_forms(self) -> usize {
++        2
+     }
+-    out
+-}
+-
+-/// The registered language for a locale tag such as `ja_JP.UTF-8`, `ja-JP`; `None` if the
+-/// language isn't supported. `C`/`POSIX` mean English.
+-pub fn lang_from_tag(tag: &str) -> Option<Lang> {
+-    let cands = candidates(tag);
+-    if matches!(cands.first().map(String::as_str), Some("c" | "posix")) {
+-        return Some(Lang::EN);
++    pub fn rtl(self) -> bool {
++        false
+     }
+-    cands.iter().find_map(|c| Lang::from_code(c))
+-}
+-
+-/// The system language (cached). English when it can't be determined.
+-pub fn system_lang() -> Lang {
+-    // Tests drive the UI by its English labels whatever the developer's locale is. This covers
+-    // the unit tests; the integration tests link the library as it ships, where `cfg!(test)` is
+-    // off, so each of their harnesses pins the `language` option to `en` instead.
+-    if cfg!(test) {
+-        return Lang::EN;
++    pub fn from_code(code: &str) -> Option<Self> {
++        code.split(['-', '_']).next().filter(|c| c.eq_ignore_ascii_case("es")).map(|_| Self::ES)
+     }
+-    static SYSTEM: OnceLock<Lang> = OnceLock::new();
+-    *SYSTEM.get_or_init(detect_system_lang)
+-}
+-
+-#[cfg(not(target_arch = "wasm32"))]
+-fn detect_system_lang() -> Lang {
+-    for var in ["LC_ALL", "LC_MESSAGES", "LANG"] {
+-        if let Some(l) = std::env::var(var).ok().and_then(|v| language_override(&v)) {
+-            return l;
+-        }
++    pub fn from_pref(_pref: &str) -> Self {
++        Self::ES
+     }
+-    // Apps started from the Finder don't inherit LANG: use the macOS preferred-languages list.
+-    // The absolute path keeps a `defaults` earlier on PATH from running; any failure means English.
+-    #[cfg(target_os = "macos")]
+-    if let Ok(out) = std::process::Command::new("/usr/bin/defaults").args(["read", "-g", "AppleLanguages"]).output()
+-        && out.status.success()
+-        && let Some(l) = first_supported(&String::from_utf8_lossy(&out.stdout))
+-    {
+-        return l;
++    pub fn all() -> impl Iterator<Item = Self> {
++        std::iter::once(Self::ES)
+     }
+-    #[cfg(target_os = "windows")]
+-    if let Some(l) = windows_ui_language().as_deref().and_then(first_supported) {
+-        return l;
++    pub fn for_picker() -> Vec<Self> {
++        vec![Self::ES]
+     }
+-    Lang::EN
+-}
+-
+-/// A named locale can override the display language. On Windows, the neutral
+-/// C/POSIX locale inherited from a launcher says nothing about the user's UI language.
+-#[cfg(not(target_arch = "wasm32"))]
+-fn language_override(tag: &str) -> Option<Lang> {
+-    let tag = tag.trim();
+-    if cfg!(target_os = "windows") && matches!(candidates(tag).first().map(String::as_str), Some("c" | "posix")) {
+-        return None;
++    fn catalog(self) -> &'static Catalog {
++        LANGUAGES[0].catalog()
+     }
+-    lang_from_tag(tag)
+-}
+-
+-/// The Windows display languages in preference order, one tag per line, queried once when Auto
+-/// first resolves. `sys-locale` asks Windows directly (`GetUserPreferredUILanguages`), so no
+-/// process is started.
+-#[cfg(target_os = "windows")]
+-fn windows_ui_language() -> Option<String> {
+-    let tags: Vec<String> = sys_locale::get_locales().collect();
+-    (!tags.is_empty()).then(|| tags.join("\n"))
+-}
+-
+-/// The first supported language in a macOS `defaults read` list or Windows UI-culture output.
+-#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
+-fn first_supported(list: &str) -> Option<Lang> {
+-    list.split(['(', ')', ',', '"', '\n']).map(str::trim).filter(|s| !s.is_empty()).find_map(lang_from_tag)
+ }
+-
+-/// The first supported language among BCP 47 tags in preference order, as the browser lists them
+-/// in `navigator.languages` (#2954). Only the first few tags are looked at: the list is short in
+-/// practice, and a page can't make Auto walk an unbounded one.
+-#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+-fn first_supported_tag<S: AsRef<str>>(tags: impl IntoIterator<Item = S>) -> Option<Lang> {
+-    tags.into_iter().take(32).find_map(|tag| lang_from_tag(tag.as_ref().trim()))
++pub fn normalize_pref(_pref: &str) -> Option<&'static str> {
++    Some("es")
+ }
+-
+-/// The browser's preferred languages, as the desktop builds use the system's: `navigator.languages`
+-/// in order, then `navigator.language` (kept within the 32 tags `first_supported_tag` reads).
+-/// English when the browser offers none we have a catalog for.
+-#[cfg(target_arch = "wasm32")]
+-fn detect_system_lang() -> Lang {
+-    let Some(navigator) = web_sys::window().map(|w| w.navigator()) else { return Lang::EN };
+-    let mut tags: Vec<String> = navigator.languages().iter().take(31).filter_map(|v| v.as_string()).collect();
+-    tags.extend(navigator.language());
+-    first_supported_tag(&tags).unwrap_or(Lang::EN)
++pub fn lang_from_tag(_tag: &str) -> Option<Lang> {
++    Some(Lang::ES)
+ }
+-
+-thread_local! {
+-    // Per thread, as in PhotoCraft: independent app and test threads (kittest harnesses run in
+-    // parallel) must not change each other's drawing language.
+-    static CURRENT: Cell<Lang> = const { Cell::new(Lang::EN) };
++pub fn system_lang() -> Lang {
++    Lang::ES
+ }
+-
+-/// Set the UI language for drawing (the shell calls this once per frame from the preference), so
+-/// widgets can translate without every call site carrying a language around.
++thread_local! { static CURRENT: Cell<Lang> = const { Cell::new(Lang::ES) }; }
+ pub fn set_current(lang: Lang) {
+     CURRENT.set(lang);
+ }
+-
+-/// The language the UI is drawn in.
+-/// `label` as it reads inside a sentence ("add a text box"): lowercased, except in languages
+-/// that capitalise nouns (German), where lowercasing would misspell it.
+-pub fn in_sentence(label: &str) -> std::borrow::Cow<'_, str> {
+-    match current().code() {
+-        "de" => std::borrow::Cow::Borrowed(label),
+-        "tr" => std::borrow::Cow::Owned(label.chars().flat_map(lower_turkish).collect()),
+-        _ => std::borrow::Cow::Owned(label.to_lowercase()),
+-    }
+-}
+-
+-/// The translation of `english` in upper case, for section titles. Rust's case mapping knows no
+-/// language, and Turkish has a dotted and a dotless i (`i` ↔ `İ`, `ı` ↔ `I`): "Gelişmiş" must
+-/// become "GELİŞMİŞ", not "GELIŞMIŞ". A label without a Turkish row is still English and keeps
+-/// the English rule.
+-pub fn upper_label(english: &str) -> String {
+-    let lang = current();
+-    let shown = tr(lang, english);
+-    if lang.code() == "tr" && has(lang, english) { shown.chars().flat_map(upper_turkish).collect() } else { shown.to_uppercase() }
+-}
+-
+-fn upper_turkish(c: char) -> std::char::ToUppercase {
+-    match c {
+-        'i' => 'İ'.to_uppercase(),
+-        'ı' => 'I'.to_uppercase(),
+-        c => c.to_uppercase(),
+-    }
+-}
+-
+-fn lower_turkish(c: char) -> std::char::ToLowercase {
+-    match c {
+-        // `İ`.to_lowercase() is "i" plus a combining dot above.
+-        'İ' => 'i'.to_lowercase(),
+-        'I' => 'ı'.to_lowercase(),
+-        c => c.to_lowercase(),
+-    }
+-}
+-
+ pub fn current() -> Lang {
+     CURRENT.get()
+ }
+-
+-/// Does `lang` have a catalog entry for this plain string? (English never does: it is the source.)
++pub fn in_sentence(label: &str) -> std::borrow::Cow<'_, str> {
++    std::borrow::Cow::Owned(label.to_lowercase())
++}
++pub fn upper_label(key: &str) -> String {
++    t(key).to_uppercase()
++}
+ pub fn has(lang: Lang, s: &str) -> bool {
+     lang.catalog().plain(s).is_some()
+ }
+-
+-/// Translate an English UI string into the current language ([`tr`] with [`current`]).
+ pub fn t(s: &str) -> &str {
+     tr(current(), s)
+ }
+-
+-/// The name of a keyboard key, distinct from a command such as Delete. Missing key-name
+-/// translations use the English key name, never a plain command translation.
+ pub fn key_name(s: &str) -> &str {
+     current().catalog().contextual("key", s).unwrap_or(s)
+ }
+-
+-/// Translate an English UI string; unknown strings come back unchanged.
+ pub fn tr(lang: Lang, s: &str) -> &str {
+     lang.catalog().plain(s).unwrap_or(s)
+ }
+-
+-/// How the layers below say their own sentences in the current language.
+-///
+-/// The checker, the preflight profiles and the signature panel hand over a whole English wording
+-/// — holes and all — and the document's own words apart from it, so this is all they need of us:
+-/// `f.said(&i18n::words)` says the sentence here, and `in_english` says it in English. An unknown
+-/// wording comes back as it stands, which is the English, so a catalog that is missing one is a
+-/// sentence in English rather than a gap.
+ pub fn words(wording: &str) -> String {
+     t(wording).to_owned()
+ }
+-
+-/// Like [`tr`], for an English string that needs a disambiguating `context`.
+ pub fn tr_ctx<'a>(lang: Lang, context: &str, s: &'a str) -> &'a str {
+     lang.catalog().contextual(context, s).unwrap_or_else(|| tr(lang, s))
+ }
+-
+-/// A string keyed by its command id, falling back to the translation of the English `label`.
+ pub fn tr_id<'a>(lang: Lang, id: &str, label: &'a str) -> &'a str {
+     lang.catalog().id(id).unwrap_or_else(|| tr(lang, label))
+ }
+-
+-/// Fill `{name}` placeholders in one pass. Unknown placeholders are left as written, and inserted
+-/// values are never read as templates again, so a file name containing `{n}` stays intact.
+ pub fn fmt(template: &str, args: &[(&str, &str)]) -> String {
+     let mut out = String::with_capacity(template.len());
+     let mut rest = template;
+@@ -753,47 +203,21 @@ pub fn menu_label(id: &str, label: &str) -> String {
+ 
+ /// A plural-aware message: `one`/`other` are the English forms (with `{n}` where the count goes).
+ pub fn trn(lang: Lang, n: u64, one: &str, other: &str) -> String {
+-    let idx = (lang.0.plural)(n);
++    let idx = usize::from(n != 1);
+     let text = lang.catalog().plural(one, other, idx).unwrap_or(if n == 1 { one } else { other });
+     fmt(text, &[("n", &n.to_string())])
+ }
+ 
+-/// `name` lowercased with the Latin accents that occur in language names folded away, so a
+-/// byte-wise sort reads alphabetically. Other scripts are left as they are.
+-fn name_sort_key(name: &str) -> String {
+-    name.chars()
+-        .flat_map(char::to_lowercase)
+-        .map(|c| match c {
+-            'à'..='å' | 'ā' | 'ă' | 'ą' => 'a',
+-            'ç' | 'ć' | 'č' => 'c',
+-            'è'..='ë' | 'ē' | 'ě' | 'ę' | 'ế' | 'ệ' => 'e',
+-            'ì'..='ï' | 'ī' => 'i',
+-            'ñ' | 'ń' | 'ň' => 'n',
+-            'ò'..='ö' | 'ø' | 'ő' => 'o',
+-            'ś' | 'š' => 's',
+-            'ù'..='ü' | 'ū' | 'ů' | 'ű' => 'u',
+-            'ý' | 'ÿ' => 'y',
+-            'ź' | 'ż' | 'ž' => 'z',
+-            c => c,
+-        })
+-        .collect()
+-}
+-
+ #[cfg(test)]
+-mod tests;
+-
+-#[cfg(test)]
+-mod picker_order_tests {
++mod spanish_tests {
+     use super::*;
+-
+     #[test]
+-    fn picker_lists_english_first_then_names_alphabetically() {
+-        let order = Lang::for_picker();
+-        assert_eq!(order.first().map(|l| l.code()), Some(Lang::EN.code()));
+-        assert_eq!(order.len(), Lang::all().count());
+-        let keys: Vec<String> = order[1..].iter().map(|l| name_sort_key(l.name())).collect();
+-        assert!(keys.windows(2).all(|w| w[0] <= w[1]), "{keys:?}");
+-        assert_eq!(name_sort_key("Čeština"), "cestina");
+-        assert_eq!(name_sort_key("Türkçe"), "turkce");
++    fn solo_espanol() {
++        assert_eq!(Lang::all().map(Lang::code).collect::<Vec<_>>(), ["es"]);
++        for pref in ["auto", "en", "ja", "de", ""] {
++            assert_eq!(Lang::from_pref(pref).code(), "es");
++        }
++        assert_eq!(t("File"), "Archivo");
++        assert_eq!(trn(current(), 2, "{n} page", "{n} pages"), "2 páginas");
+     }
+ }
+diff --git a/crates/ui-egui/src/i18n/es.tsv b/crates/ui-egui/src/i18n/es.tsv
+index 131d2da..8d9d653 100644
+--- a/crates/ui-egui/src/i18n/es.tsv
++++ b/crates/ui-egui/src/i18n/es.tsv
+@@ -31,8 +31,6 @@
+ 	Open…	Abrir…
+ 	Open Recent	Abrir recientes
+ 	Clear Recent Files	Borrar archivos recientes
+-	Remove from Recent	Quitar de recientes
+-	Remove {name} from Recent	Quitar {name} de recientes
+ 	Pin folder to Home…	Anclar carpeta en Inicio…
+ 	Folders	Carpetas
+ 	Pin a folder…	Anclar una carpeta…
+@@ -96,7 +94,6 @@
+ 	Flatten Fill & Sign when saving	Acoplar Rellenar y firmar al guardar
+ 	Text, marks and signatures become part of the page. Other comments stay editable.	El texto, las marcas y las firmas pasan a formar parte de la página. Los demás comentarios siguen siendo editables.
+ 	OK	Aceptar
+-	Join our Discord	Únete a nuestro Discord
+ 	Close	Cerrar
+ 	Next / previous match	Coincidencia siguiente / anterior
+ 	Copy selected text	Copiar el texto seleccionado
+@@ -111,7 +108,6 @@
+ 	Select all pages (Organize)	Seleccionar todas las páginas (Organizar)
+ 	Home	Inicio
+ 	Open	Abrir
+-	Open a PDF ({key})	Abrir un PDF ({key})
+ 	Dark gray theme	Tema gris oscuro
+ 	Light theme	Tema claro
+ 	Appearance mode	Modo de apariencia
+@@ -165,17 +161,7 @@
+ 	Previous page	Página anterior
+ 	Current page — type a page number or label (such as iv) and press Enter	Página actual: escribe un número o una etiqueta de página (por ejemplo, iv) y pulsa Intro
+ 	Zoom — type a percentage and press Enter	Zoom: escribe un porcentaje y pulsa Intro
+-	Welcome to PdfCraft	Te damos la bienvenida a PdfCraft
+-	An open-source PDF workbench — local, private, and scriptable.	Un banco de trabajo PDF de código abierto: local, privado y automatizable.
+-	Join the ArtCraft community	Únete a la comunidad de ArtCraft
+-	Get help, share feedback and follow development on Discord.	Recibe ayuda, comparte tu opinión y sigue el desarrollo en Discord.
+-	Recommended tools	Herramientas recomendadas
+ 	Use now	Usar ahora
+-	Open file	Abrir archivo
+-	Recent	Recientes
+-	Files you open in PdfCraft appear here. Drop a PDF anywhere to open it.	Los archivos que abras en PdfCraft aparecerán aquí. Suelta un PDF en cualquier parte para abrirlo.
+-	Privacy	Privacidad
+-	PdfCraft works offline. No telemetry, no account, and no cloud processing unless you add a provider.	PdfCraft funciona sin conexión. Sin telemetría, sin cuenta y sin procesamiento en la nube, salvo que añadas un proveedor.
+ 	Scripts run in a sandbox without file or network access. With JavaScript off, Acrobat's standard format, validate and calculate functions still work.	Los scripts se ejecutan en un entorno aislado, sin acceso a archivos ni a la red. Con JavaScript desactivado, las funciones estándar de formato, validación y cálculo de Acrobat siguen funcionando.
+ 	Back to all tools	Volver a todas las herramientas
+ 	Close panel	Cerrar panel
+@@ -322,12 +308,10 @@
+ 	Split document…	Dividir documento…
+ 	Number pages…	Numerar páginas…
+ 	Keyboard shortcuts	Atajos de teclado
+-	Join the ArtCraft Discord	Únete al Discord de ArtCraft
+ 	PdfCraft web page	Página web de PdfCraft
+ 	PdfCraft on GitHub	PdfCraft en GitHub
+ 	ArtCraft website	Sitio web de ArtCraft
+ 	Check for updates…	Buscar actualizaciones…
+-	About PdfCraft	Acerca de PdfCraft
+ 	Export a PDF	Exportar un PDF
+ 	Export to	Exportar a
+ 	Microsoft Word (.docx)	Microsoft Word (.docx)
+@@ -1467,9 +1451,6 @@
+ 	 · password-protected	 · protegido con contraseña
+ 	Recover	Recuperar
+ 	Discard	Descartar
+-	Version {v}	Versión {v}
+-	A clean-room, open-source PDF application written in Rust. MIT OR Apache-2.0.	Una aplicación PDF de código abierto, de sala limpia, escrita en Rust. MIT OR Apache-2.0.
+-	Part of	Parte de
+ 	Summarize Options	Opciones de resumen
+ 	Choose a layout:	Elige una disposición:
+ 	Comments only	Solo comentarios
+@@ -1938,7 +1919,6 @@ action wizard	Start	Iniciar
+ 	JavaScript, e.g. getField("total").value	JavaScript, p. ej., getField("total").value
+ 	Font: Helvetica	Fuente: Helvetica
+ 	e.g. en-US	p. ej., es-ES
+-	Rendering: hayro (bootstrap) · UI: egui · Icons: Lucide (ISC) · Fonts: Inter, JetBrains Mono, Dancing Script (OFL)	Renderizado: hayro (inicial) · Interfaz: egui · Iconos: Lucide (ISC) · Fuentes: Inter, JetBrains Mono, Dancing Script (OFL)
+ 	CheckBox	Casilla de verificación
+ 	Radio	Botón de opción
+ 	PushButton	Botón
+@@ -2163,39 +2143,9 @@ action wizard	Start	Iniciar
+ 	Default zoom	Zoom predeterminado
+ 	Used when a PDF doesn't ask for a layout or zoom. Continuous scrolling never snaps between pages.	Se usa cuando un PDF no pide una presentación ni un zoom. El desplazamiento continuo nunca salta de página en página.
+ 	Show	Mostrar
+-	Sort	Ordenar
+-	Reverse the order	Invertir el orden
+-	Grab bag	Miscelánea
+ 	Table	Tabla
+-	Username	Nombre de usuario
+-	Display name	Nombre para mostrar
+-	Real name	Nombre real
+-	Name (A–Z)	Nombre (A–Z)
+-	Merged PRs	PR fusionados
+-	PRs	PR
+-	Commits	Commits
+-	Lines added	Líneas añadidas
+-	+LOC	+LOC
+-	Lines deleted	Líneas eliminadas
+-	−LOC	−LOC
+-	Line delta	Diferencia de líneas
+-	ΔLOC	ΔLOC
+-	Binary assets added	Recursos binarios añadidos
+-	+Bin	+Bin
+-	Binary assets removed	Recursos binarios eliminados
+-	−Bin	−Bin
+-	First commit	Primer commit
+ 	First	Primero
+-	Last commit	Último commit
+ 	Last	Último
+-	No contributor data was built into this copy.	Esta copia no incluye datos de colaboradores.
+-	No model credits were built into this copy.	Esta copia no incluye créditos de modelos.
+-	{n} contributors · {c} commits	{n} colaboradores · {c} commits
+-	Company	Empresa
+-	Model	Modelo
+-	% of all commits	% de todos los commits
+-	Lines +/−	Líneas +/−
+-	@{login}: {prs} PRs, {commits} commits, +{added} / −{deleted} lines (Δ {delta}), +{bin_added} / −{bin_deleted} binary assets, {first} – {last}	@{login}: {prs} PR, {commits} commits, +{added} / −{deleted} líneas (Δ {delta}), +{bin_added} / −{bin_deleted} recursos binarios, {first} – {last}
+ 	Reopen the files that were open when PdfCraft last closed	Volver a abrir los archivos que estaban abiertos al cerrar PdfCraft por última vez
+ 	Restore the last view (page, zoom and page display) when a document is opened again	Restaurar la última vista (página, zoom y presentación de páginas) al volver a abrir un documento
+ 	Add {what}	Añadir {what}
+@@ -2250,9 +2200,6 @@ action wizard	Start	Iniciar
+ 	Choose a PNG or JPEG image (up to 4 MiB). Transparency is preserved.	Elige una imagen PNG o JPEG (hasta 4 MiB). Se conserva la transparencia.
+ 	Couldn't import the signature image: {e}	No se pudo importar la imagen de la firma: {e}
+ 	Go to page…	Ir a la página…
+-	About	Acerca de
+-	Contributors	Colaboradores
+-	Models	Modelos
+ 	Only continue if you trust this document. An address can carry information from the document, such as what you typed into its form.	Continúa solo si confías en este documento. Una dirección puede llevar información del documento, como lo que escribiste en su formulario.
+ 	Print single-sided. Keep the sheets in order, cut at the marks, then stack the piles left to right, top to bottom.	Imprime a una cara. Mantén las hojas en orden, corta por las marcas y apila los montones de izquierda a derecha y de arriba abajo.
+ 	For page sizes and margins.	Para tamaños de página y márgenes.
+@@ -2282,8 +2229,6 @@ action wizard	Start	Iniciar
+ 	Printer properties	Propiedades de la impresora
+ 	Reset to printer defaults	Restablecer los valores predeterminados de la impresora
+ 	This printer offers no settings of its own.	Esta impresora no ofrece ajustes propios.
+-	Scroll tabs left	Desplazar las pestañas a la izquierda
+-	Scroll tabs right	Desplazar las pestañas a la derecha
+ 
+ # Shared field properties (Prepare a form).
+ 	Shared Field Properties	Propiedades comunes de los campos
+@@ -2579,10 +2524,6 @@ animation effects	Off	Desactivados
+ 	Couldn't use the photo: {e}	No se puede usar la foto: {e}
+ 
+ # PDF tab context menu (#1233)
+-	Close Tab	Cerrar pestaña
+-	Reopen Closed Tab	Reabrir pestaña cerrada
+-	Reveal in Finder	Mostrar en Finder
+-	Reveal in File Explorer	Mostrar en el explorador de archivos
+ 	Other colour…	Otro color…
+ 	Recent colours	Colores recientes
+ 	Reading colours	Colores de lectura
+@@ -2940,3 +2881,4 @@ theme	Appearance	Aspecto
+ 	No image on clipboard to paste	No hay ninguna imagen en el portapapeles para pegar
+ 	Pinned {tool} to Home	{tool} fijado en Inicio
+ 	Unpinned {tool} from Home	{tool} desfijado de Inicio
++	Window	Ventana
+diff --git a/crates/ui-egui/src/lib.rs b/crates/ui-egui/src/lib.rs
+index c25dae9..11ee5d8 100644
+--- a/crates/ui-egui/src/lib.rs
++++ b/crates/ui-egui/src/lib.rs
+@@ -55,7 +55,6 @@ mod bidi;
+ mod dialogs;
+ pub use edit_text_ui::{CropMode, DragTarget, ImageDrag, ImageHandle, ImageSelection};
+ mod editing;
+-mod home;
+ mod hotbar;
+ mod panels;
+ pub use print_ui::{Handling as PrintHandling, OptionsSource, PrintDraft, PrinterSource, Which as PrintWhich, system_printers};
+@@ -101,7 +100,8 @@ use canvas::zoom_snap;
+ use dialogs::appearance;
+ pub use dialogs::bookmark_styles_ui;
+ use dialogs::comment_props;
+-use dialogs::credits;
++mod folio;
++mod home;
+ use dialogs::marks_ui;
+ use dialogs::pageboxes;
+ use dialogs::palette;
+diff --git a/crates/ui-egui/src/menus.rs b/crates/ui-egui/src/menus.rs
+index 49f2aeb..6876889 100644
+--- a/crates/ui-egui/src/menus.rs
++++ b/crates/ui-egui/src/menus.rs
+@@ -24,9 +24,8 @@ pub(super) mod tab_context;
+ pub(crate) const APP_NAME: &str = "PdfCraft";
+ 
+ /// The top bar's width after the menus: the mode tabs, the search box and the buttons.
+-const ROW_AFTER_MENUS: f32 = 720.0;
++
+ /// The narrowest the menu bar gets: one "Menu" title.
+-const MIN_MENUS_WIDTH: f32 = 80.0;
+ 
+ /// Menu-only commands. The registry's commands keep their own ids.
+ pub(crate) const CUT: &str = "edit.cut";
+@@ -223,8 +222,7 @@ const SIGN: &[&str] = &[
+     "sign.panel",
+ ];
+ const WINDOW: &[&str] = &["view.next_tab", "view.previous_tab"];
+-const HELP: &[&str] =
+-    &["help.shortcuts", SEP, "help.app_page", "help.github", "help.website", "help.discord", SEP, "help.check_updates", SEP, "help.about"];
++const HELP: &[&str] = &["help.shortcuts", SEP, "help.app_page", "help.github", "help.website", SEP, "help.check_updates"];
+ 
+ /// A registry shortcut as a craft-keymap chord: `command` is ⌘ (Ctrl elsewhere) and `mac_ctrl`
+ /// the Control key on macOS. `None` for a key craft-keymap doesn't name.
+@@ -577,13 +575,13 @@ impl PdfCraftApp {
+         let gate = self.menu_gate(&ctx);
+         // The mode tabs, search and buttons follow the bar in the same row: it takes its titles'
+         // width, less when the row is short, where the menus that don't fit move into its "⋯".
+-        let fit = (ui.available_width() - ROW_AFTER_MENUS).max(MIN_MENUS_WIDTH);
++
+         let chosen = craft_menu::MenuBarUi::new(&bar)
+             .gate(gate)
+             .label(&translate)
+             .english(&english)
+             .id(egui::Id::unique("pdfcraft-menu-bar"))
+-            .shrink_to_fit(fit)
++            .shrink_to_fit(0.0)
+             .show(ui);
+         for command in chosen {
+             self.run_menu_command(&ctx, &command);
+diff --git a/crates/ui-egui/src/panels/edit.rs b/crates/ui-egui/src/panels/edit.rs
+index 2c2fb7a..72e40c8 100644
+--- a/crates/ui-egui/src/panels/edit.rs
++++ b/crates/ui-egui/src/panels/edit.rs
+@@ -302,7 +302,7 @@ fn format_section(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens) {
+                 ed.choose_family(family);
+                 changed = true;
+             }
+-            Some(FontChoice::Load) => app.pick_files(crate::files::FilePurpose::TextFont { page: ed.page }, false),
++            Some(FontChoice::Load) => app.pick_files(crate::files::FilePurpose::TextFont { page: ed.page }, true),
+             #[cfg(not(target_arch = "wasm32"))]
+             Some(FontChoice::Installed(path)) => app.use_paths(crate::files::FilePurpose::TextFont { page: ed.page }, &[path]),
+             #[cfg(target_arch = "wasm32")]
+diff --git a/crates/ui-egui/src/state.rs b/crates/ui-egui/src/state.rs
+index e3a9c54..cd72c50 100644
+--- a/crates/ui-egui/src/state.rs
++++ b/crates/ui-egui/src/state.rs
+@@ -104,7 +104,6 @@ pub enum Dialog {
+     WordCount,
+     CreateImages,
+     Properties(PropsTab),
+-    About,
+     Shortcuts,
+     Split,
+     /// Pages ▸ Number pages… (page labels).
+diff --git a/crates/ui-egui/src/theme/tests.rs b/crates/ui-egui/src/theme/tests.rs
+index d2e49ae..e648f7d 100644
+--- a/crates/ui-egui/src/theme/tests.rs
++++ b/crates/ui-egui/src/theme/tests.rs
+@@ -9,7 +9,7 @@ fn arabic_chrome_is_right_to_left_after_the_language_changes() {
+     crate::i18n::set_current(crate::i18n::Lang::from_code("ar").expect("registered language"));
+     apply(&ctx, ThemeKind::Light);
+     assert!(ctx.global_style().right_to_left);
+-    crate::i18n::set_current(crate::i18n::Lang::EN);
++    crate::i18n::set_current(crate::i18n::Lang::ES);
+     sync_direction(&ctx);
+     assert!(!ctx.global_style().right_to_left);
+     crate::i18n::set_current(previous);
+diff --git a/crates/ui-egui/src/tools/calc_order_ui.rs b/crates/ui-egui/src/tools/calc_order_ui.rs
+index ce25d6c..807435a 100644
+--- a/crates/ui-egui/src/tools/calc_order_ui.rs
++++ b/crates/ui-egui/src/tools/calc_order_ui.rs
+@@ -1045,7 +1045,7 @@ mod tests {
+ 
+     #[test]
+     fn a_name_list_reads_as_a_sentence_and_stops_after_six() {
+-        crate::i18n::set_current(crate::i18n::Lang::EN);
++        crate::i18n::set_current(crate::i18n::Lang::ES);
+         assert_eq!(names(&[]), "");
+         assert_eq!(names(&["a"]), "a");
+         assert_eq!(names(&["a", "b"]), "a and b");
+@@ -1097,7 +1097,7 @@ mod tests {
+ 
+     #[test]
+     fn the_summary_says_what_a_field_reads_and_what_reads_it() {
+-        crate::i18n::set_current(crate::i18n::Lang::EN);
++        crate::i18n::set_current(crate::i18n::Lang::ES);
+         let links = [link("sub", "total", Tone::Late), link("tax", "total", Tone::Ok), link("qty", "sub", Tone::Ok), link("sub", "tax", Tone::Ok)];
+         assert_eq!(trace(&links, &Focus::named("total"), &[]), "total reads sub and tax · No field reads it");
+         assert_eq!(trace(&links, &Focus::named("sub"), &[]), "sub reads qty · total and tax read it");
+diff --git a/crates/ui-egui/src/tools/sign_ui/dialog.rs b/crates/ui-egui/src/tools/sign_ui/dialog.rs
+index feb4fdd..69b0cfc 100644
+--- a/crates/ui-egui/src/tools/sign_ui/dialog.rs
++++ b/crates/ui-egui/src/tools/sign_ui/dialog.rs
+@@ -268,7 +268,7 @@ pub(super) fn graphic_of(signature: Option<&SavedSig>, g: &SignGraphic) -> Optio
+ /// signing would refuse. The English words are the sign crate's own, so they can't drift apart.
+ pub(crate) fn appearance_labels(lang: crate::i18n::Lang) -> (AppearanceLabels, bool) {
+     let english = AppearanceLabels::default();
+-    if lang == crate::i18n::Lang::EN {
++    if lang == crate::i18n::Lang::ES {
+         return (english, false);
+     }
+     let said = |s: &str| (!lang.rtl() && crate::i18n::has(lang, s)).then(|| crate::i18n::tr(lang, s).to_string());
+diff --git a/crates/ui-egui/src/widgets.rs b/crates/ui-egui/src/widgets.rs
+index 5e33f9c..7e4e1c2 100644
+--- a/crates/ui-egui/src/widgets.rs
++++ b/crates/ui-egui/src/widgets.rs
+@@ -111,9 +111,9 @@ pub(crate) fn paint_left(ui: &egui::Ui, pos: egui::Pos2, text: &str, font: egui:
+ /// A mode-bar tab: text with an underline when active.
+ pub fn mode_tab(ui: &mut egui::Ui, label: &str, active: bool) -> Response {
+     let t = Tokens::get(ui.ctx());
+-    let font = if active { theme::semibold(13.5) } else { theme::medium(13.5) };
++    let font = if active { theme::regular(12.5) } else { theme::regular(12.5) };
+     let w = ui.fonts_mut(|f| f.layout_no_wrap(label.to_owned(), font.clone(), t.text).size().x);
+-    let (rect, resp) = ui.allocate_exact_size(vec2(w + 22.0, 48.0), Sense::click());
++    let (rect, resp) = ui.allocate_exact_size(vec2(w + 22.0, 24.0), Sense::click());
+     resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), active, label));
+     let press = theme::Press::track(ui, &resp);
+     let well = rect.shrink2(vec2(2.0, 9.0));
+@@ -174,7 +174,7 @@ pub fn ghost_button(ui: &mut egui::Ui, icon: &str, label: &str) -> Response {
+ /// [`ghost_button`] at a given height (the macOS title bar is shorter than the tab strip elsewhere).
+ pub fn ghost_button_sized(ui: &mut egui::Ui, icon: &str, label: &str, height: f32) -> Response {
+     let t = Tokens::get(ui.ctx());
+-    let font = theme::medium(13.0);
++    let font = theme::regular(12.5);
+     let label_galley = crate::bidi::layout_ui(ui, label.to_owned(), font, t.text);
+     let w = label_galley.size().x;
+     let (rect, resp) = ui.allocate_exact_size(vec2(w + 38.0, height), Sense::click());
+@@ -190,7 +190,7 @@ pub fn ghost_button_sized(ui: &mut egui::Ui, icon: &str, label: &str, height: f3
+ /// A search-field lookalike that opens the command palette.
+ pub fn search_box(ui: &mut egui::Ui, placeholder: &str, width: f32) -> Response {
+     let t = Tokens::get(ui.ctx());
+-    let (rect, resp) = ui.allocate_exact_size(vec2(width, 32.0), Sense::click());
++    let (rect, resp) = ui.allocate_exact_size(vec2(width, ui.available_height().clamp(18.0, 24.0)), Sense::click());
+     resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), placeholder));
+     let press = theme::Press::track(ui, &resp);
+     let fill = press.fill(t.field, t.hover, t.pressed);
+@@ -205,7 +205,7 @@ pub fn search_box(ui: &mut egui::Ui, placeholder: &str, width: f32) -> Response
+     let text_right = (shortcut_pos.x - 10.0).max(rect.left());
+     let text_left = (rect.left() + 34.0).min(text_right);
+     let text_rect = Rect::from_min_max(egui::pos2(text_left, rect.top()), egui::pos2(text_right, rect.bottom()));
+-    let mut job = egui::text::LayoutJob::simple_singleline(placeholder.to_owned(), theme::regular(13.0), t.text_faint);
++    let mut job = egui::text::LayoutJob::simple_singleline(placeholder.to_owned(), theme::regular(12.5), t.text_faint);
+     job.direction = crate::bidi::ui_direction();
+     job.wrap = egui::text::TextWrapping { max_width: text_rect.width(), max_rows: 1, break_anywhere: true, ..Default::default() };
+     let text = ui.fonts_mut(|f| f.layout_job(job));
+@@ -603,24 +603,8 @@ pub fn progress_notice(app: &PdfCraftApp, ctx: &egui::Context) -> bool {
+ }
+ 
+ /// The ArtCraft wordmark (Storyteller's brand, docs/brand/; not open source), sized to `height`.
+-pub fn artcraft_logo(ui: &mut egui::Ui, height: f32) -> Response {
+-    let dark = ui.visuals().dark_mode;
+-    let (uri, bytes): (&str, &'static [u8]) = if dark {
+-        ("bytes://artcraft-logo-white.svg", include_bytes!("../../../docs/brand/artcraft-logo-white.svg"))
+-    } else {
+-        ("bytes://artcraft-logo.svg", include_bytes!("../../../docs/brand/artcraft-logo.svg"))
+-    };
+-    ui.add(egui::Image::from_bytes(uri, bytes).max_height(height).alt_text("ArtCraft"))
+-}
+ 
+ /// The ArtCraft mark (brand blue, works on light and dark), `size` points square.
+-pub fn artcraft_mark(ui: &mut egui::Ui, size: f32) -> Response {
+-    ui.add(
+-        egui::Image::from_bytes("bytes://artcraft-mark.svg", include_bytes!("../../../docs/brand/artcraft-mark.svg"))
+-            .fit_to_exact_size(vec2(size, size))
+-            .alt_text("ArtCraft"),
+-    )
+-}
+ 
+ /// Buttons for every community link (`pdfcraft_engine::links`), Discord first and prominent.
+ /// Returns the registry command of the one clicked.
+@@ -833,7 +817,7 @@ mod tests {
+         let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+             let column = Rect::from_min_size(Pos2::ZERO, vec2(120.0, 400.0));
+             ui.scope_builder(egui::UiBuilder::new().max_rect(column), |ui| {
+-                wrapped_text(ui, text, theme::regular(13.0), Color32::WHITE, truncate);
++                wrapped_text(ui, text, theme::regular(12.5), Color32::WHITE, truncate);
+             });
+         });
+         let shapes = output
+@@ -858,13 +842,13 @@ mod tests {
+         let mut first = None;
+         for _ in 0..3 {
+             ctx.run_ui(egui::RawInput::default(), |ui| {
+-                let lines = wrapped_lines(ui, persian, &theme::regular(13.0), 120.0, false);
++                let lines = wrapped_lines(ui, persian, &theme::regular(12.5), 120.0, false);
+                 assert!(lines.len() > 1);
+                 if let Some(prev) = &first {
+                     assert!(std::sync::Arc::ptr_eq(prev, &lines), "the second frame reuses the first frame's wrap");
+                 }
+                 first = Some(lines);
+-                let collapsed = wrapped_lines(ui, &long, &theme::regular(13.0), 120.0, true);
++                let collapsed = wrapped_lines(ui, &long, &theme::regular(12.5), 120.0, true);
+                 assert_eq!(collapsed.len(), 1);
+                 assert!(collapsed[0].text.ends_with(ELLIPSIS), "{:?}", collapsed[0].text);
+             })
+@@ -873,7 +857,7 @@ mod tests {
+         assert_eq!(cache_len(&ctx), 2, "one entry per text and layout");
+         ctx.run_ui(egui::RawInput::default(), |ui| {
+             for i in 0..WRAP_CACHE_MAX + 50 {
+-                wrapped_lines(ui, &format!("{persian} {i}"), &theme::regular(13.0), 120.0, false);
++                wrapped_lines(ui, &format!("{persian} {i}"), &theme::regular(12.5), 120.0, false);
+             }
+         })
+         .drop_without_applying_deltas();
+@@ -889,18 +873,18 @@ mod tests {
+         let ctx = egui::Context::default();
+         ctx.set_fonts(theme::font_definitions());
+         ctx.run_ui(egui::RawInput::default(), |ui| {
+-            let lines = wrapped_lines(ui, mixed, &theme::regular(13.0), 1000.0, false);
++            let lines = wrapped_lines(ui, mixed, &theme::regular(12.5), 1000.0, false);
+             assert_eq!(lines.len(), 1);
+             assert_eq!(lines[0].text, mixed, "epaint needs reading order, not display order");
+             assert!(lines[0].rtl);
+             // Truncation appends the ellipsis logically; the line still starts with its first word.
+-            let cut = wrapped_lines(ui, mixed, &theme::regular(13.0), 60.0, true);
++            let cut = wrapped_lines(ui, mixed, &theme::regular(12.5), 60.0, true);
+             assert_eq!(cut.len(), 1);
+             assert!(cut[0].text.starts_with("این"), "{:?}", cut[0].text);
+             assert!(cut[0].text.ends_with(ELLIPSIS), "{:?}", cut[0].text);
+             // The galley keeps logical text, so inspect positioned glyphs to prove that the
+             // visible ellipsis is at the left-hand reading end after epaint's bidi layout.
+-            let galley = ui.painter().layout_no_wrap(cut[0].text.clone(), theme::regular(13.0), Color32::WHITE);
++            let galley = ui.painter().layout_no_wrap(cut[0].text.clone(), theme::regular(12.5), Color32::WHITE);
+             let row = &galley.rows[0];
+             let ellipsis_x = row.glyphs.iter().find(|glyph| glyph.chr == '\u{2026}').expect("ellipsis glyph").pos.x;
+             assert!(
+@@ -924,7 +908,7 @@ mod tests {
+         ctx.set_fonts(theme::font_definitions());
+         ctx.run_ui(egui::RawInput::default(), |ui| {
+             let line = crate::bidi::Line { text: "PDF درباره فایل است".to_owned(), rtl: true };
+-            let galley = wrapped_line_galley(ui, &line, &theme::regular(13.0), Color32::WHITE);
++            let galley = wrapped_line_galley(ui, &line, &theme::regular(12.5), Color32::WHITE);
+             assert_eq!(galley.job.direction, egui::epaint::text::TextDirection::RightToLeft);
+             let positions: Vec<_> = galley.rows.iter().flat_map(|row| row.glyphs.iter().map(|g| (g.chr, g.pos.x))).collect();
+             let p = positions.iter().find(|(c, _)| *c == 'P').map(|(_, x)| *x).expect("a Latin P");
+diff --git a/crates/ui-egui/src/workflows/files.rs b/crates/ui-egui/src/workflows/files.rs
+index adb5e2f..3349120 100644
+--- a/crates/ui-egui/src/workflows/files.rs
++++ b/crates/ui-egui/src/workflows/files.rs
+@@ -362,8 +362,20 @@ impl PdfCraftApp {
+                 let dialog = files_picker(purpose);
+                 let handles = if multiple { dialog.pick_files().await.unwrap_or_default() } else { dialog.pick_file().await.into_iter().collect() };
+                 let mut files = Vec::new();
++                let mut font_bytes = 0usize;
+                 for h in handles {
+-                    files.push((h.file_name(), h.read().await));
++                    let font_pick = matches!(purpose, FilePurpose::TextFont { .. });
++                    let remaining = (128usize << 20).saturating_sub(font_bytes).min(16 << 20);
++                    let mut bytes = if font_pick && h.inner().size() > remaining as f64 { Vec::new() } else { h.read().await };
++                    if matches!(purpose, FilePurpose::TextFont { .. }) {
++                        // Bound the retained batch; an empty entry follows the normal
++                        // invalid-font error path without preventing later valid files.
++                        if bytes.len() > 16 << 20 || font_bytes.saturating_add(bytes.len()) > 128 << 20 {
++                            bytes = Vec::new();
++                        }
++                        font_bytes = font_bytes.saturating_add(bytes.len());
++                    }
++                    files.push((h.file_name(), bytes));
+                 }
+                 if !files.is_empty()
+                     && let Ok(mut q) = requests.lock()
+@@ -530,15 +542,18 @@ impl PdfCraftApp {
+     pub fn use_files(&mut self, purpose: FilePurpose, files: Vec<(String, Vec<u8>)>) {
+         match purpose {
+             FilePurpose::TextFont { page } => {
+-                let Some((_, bytes)) = files.into_iter().next() else { return };
+-                let bytes = Arc::new(bytes);
+-                if !self.apply_edit(Edit::RegisterTextFont { page, bytes: bytes.clone() }) {
+-                    return;
++                let mut first = None;
++                for (_, bytes) in files {
++                    let bytes = Arc::new(bytes);
++                    if self.apply_edit(Edit::RegisterTextFont { page, bytes: bytes.clone() }) && first.is_none() {
++                        first = Some(bytes);
++                    }
+                 }
++                let Some(bytes) = first else { return };
+                 let Some((index, id)) = self.active_ids() else { return };
+                 let Some(mut ed) = self.views[index].line_editor.clone().filter(|ed| ed.page == page) else { return };
+-                // The font just loaded is the one the user wants: apply it to the paragraph, as
+-                // choosing it from the document-font menu does, instead of only registering it (#2591).
++                // Register every selection, then apply the first valid face to the
++                // paragraph once, preserving the single-file behaviour (#2591).
+                 let resource = self.session.get(id).and_then(|doc| {
+                     doc.text_editor_fonts(page).into_iter().find(|f| f.bytes == *bytes && !f.resource.starts_with("PCApproved")).map(|f| f.resource)
+                 });
+diff --git a/docs/folio-android.md b/docs/folio-android.md
+new file mode 100644
+index 0000000..60b9647
+--- /dev/null
++++ b/docs/folio-android.md
+@@ -0,0 +1,10 @@
++# Folio Android integration
++
++2026-10-23. Local downstream fork for Folio Office 0.5.0.
++
++Folio owns document tabs, save, undo, redo and the appearance preference. The duplicate native title strip and the Account, About and community promotions are removed. Required copyright and licence notices remain in the Android distribution. Dark document colours affect only rendering; document data and exports retain their original colours.
++
++Validation: WebAssembly release build and Folio browser import/edit/export integration tests. Android APK assembly and signature verification.
++
++The primary menu row is 24 logical pixels (80% of WordCraft's previous 30), with Inter 12.5 pt and semibold selection. GridCraft and DeckCraft take the same pinned, OFL Inter family as an optional build input; model and cell fonts are unchanged.
++The floating quick-action bar has a persistent egui layer transform of 0.6 for both painting and hit testing. New Android-hosted documents select Hand after the initial workspace is applied.

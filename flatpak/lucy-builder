@@ -1,0 +1,5 @@
+#!/bin/sh
+export PYTHONUNBUFFERED=1
+export PYTHONDONTWRITEBYTECODE=1
+cd /app/lib/lucy-builder || exit 1
+exec python3 -m app.gui "$@"

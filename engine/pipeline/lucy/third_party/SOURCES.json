@@ -1,0 +1,147 @@
+{
+  "adapter_profile": 1,
+  "engines": [
+    {
+      "id": "wordcraft",
+      "label": "Documents",
+      "repository": "storytold/wordcraft",
+      "version": "0.13.2",
+      "source_commit": "e6a5cd05f045e4caf25a28660bfeb622f25b5129",
+      "source_prune": [
+        "crates/ui-egui/src/credits.rs",
+        "crates/ui-egui/src/i18n/audit.rs",
+        "crates/ui-egui/src/i18n/pseudo.rs",
+        "crates/ui-egui/src/i18n/tests.rs"
+      ],
+      "source_branch": "main",
+      "source_date": "2026-10-31T12:03:07-04:00",
+      "adapter_patch_sha256": "040f7387d4d573884186885324b0287c2602a7a68e03fd3dacc39fb2e89a4a06"
+    },
+    {
+      "id": "gridcraft",
+      "label": "Spreadsheets",
+      "repository": "storytold/gridcraft",
+      "version": "0.14.2",
+      "source_commit": "67e39faeea1fa4b603cbab421a30737db2cef8d9",
+      "source_prune": [
+        "crates/ui-egui/src/credits.rs",
+        "crates/ui-egui/src/dialogs/about.rs",
+        "crates/ui-egui/src/i18n/cs.rs",
+        "crates/ui-egui/src/i18n/de.rs",
+        "crates/ui-egui/src/i18n/el.rs",
+        "crates/ui-egui/src/i18n/fr.rs",
+        "crates/ui-egui/src/i18n/it.rs",
+        "crates/ui-egui/src/i18n/ja.rs",
+        "crates/ui-egui/src/i18n/ko.rs",
+        "crates/ui-egui/src/i18n/nl.rs",
+        "crates/ui-egui/src/i18n/pl.rs",
+        "crates/ui-egui/src/i18n/pt.rs",
+        "crates/ui-egui/src/i18n/ro.rs",
+        "crates/ui-egui/src/i18n/ru.rs",
+        "crates/ui-egui/src/i18n/sr.rs",
+        "crates/ui-egui/src/i18n/tr.rs",
+        "crates/ui-egui/src/i18n/uk.rs",
+        "crates/ui-egui/src/i18n/vi.rs",
+        "crates/ui-egui/src/i18n/zh.rs"
+      ],
+      "source_branch": "main",
+      "source_date": "2026-10-31T10:17:29-04:00",
+      "adapter_patch_sha256": "8782fe18ea4344c5f66bbec451da3442de61cd5dd151aac8bd0d21a3bd0685c9"
+    },
+    {
+      "id": "deckcraft",
+      "label": "Presentations",
+      "repository": "storytold/deckcraft",
+      "version": "0.13.1",
+      "source_commit": "a3fbf02952839c223df600dc33106a2dbc65be1b",
+      "source_prune": [
+        "crates/ui-egui/src/dialogs/about.rs",
+        "crates/ui-egui/src/dialogs/credits.rs"
+      ],
+      "source_branch": "main",
+      "source_date": "2026-10-31T01:06:52-04:00",
+      "adapter_patch_sha256": "e5774e5493f00691aaf393b6683813b7765e8ce8d3401bdaf7e6e1b5d22cc75b"
+    },
+    {
+      "id": "pdfcraft",
+      "label": "PDFs",
+      "repository": "storytold/pdfcraft",
+      "version": "0.16.1",
+      "source_commit": "f137a289baadefbd29e0e46930899896068cc41d",
+      "source_prune": [
+        "crates/ui-egui/src/dialogs/credits.rs",
+        "crates/ui-egui/src/i18n/ar.tsv",
+        "crates/ui-egui/src/i18n/bg.tsv",
+        "crates/ui-egui/src/i18n/ca.tsv",
+        "crates/ui-egui/src/i18n/ckb.tsv",
+        "crates/ui-egui/src/i18n/cs.tsv",
+        "crates/ui-egui/src/i18n/de.tsv",
+        "crates/ui-egui/src/i18n/el.tsv",
+        "crates/ui-egui/src/i18n/fa.tsv",
+        "crates/ui-egui/src/i18n/fi.tsv",
+        "crates/ui-egui/src/i18n/fr.tsv",
+        "crates/ui-egui/src/i18n/hi.tsv",
+        "crates/ui-egui/src/i18n/hu.tsv",
+        "crates/ui-egui/src/i18n/id.tsv",
+        "crates/ui-egui/src/i18n/it.tsv",
+        "crates/ui-egui/src/i18n/ja.tsv",
+        "crates/ui-egui/src/i18n/kk.tsv",
+        "crates/ui-egui/src/i18n/ko.tsv",
+        "crates/ui-egui/src/i18n/lo.tsv",
+        "crates/ui-egui/src/i18n/lt.tsv",
+        "crates/ui-egui/src/i18n/nb.tsv",
+        "crates/ui-egui/src/i18n/pl.tsv",
+        "crates/ui-egui/src/i18n/pt-br.tsv",
+        "crates/ui-egui/src/i18n/ro.tsv",
+        "crates/ui-egui/src/i18n/ru.tsv",
+        "crates/ui-egui/src/i18n/sl.tsv",
+        "crates/ui-egui/src/i18n/sq.tsv",
+        "crates/ui-egui/src/i18n/te.tsv",
+        "crates/ui-egui/src/i18n/th.tsv",
+        "crates/ui-egui/src/i18n/tr.tsv",
+        "crates/ui-egui/src/i18n/uk.tsv",
+        "crates/ui-egui/src/i18n/vi.tsv",
+        "crates/ui-egui/src/i18n/zh-hans.tsv",
+        "crates/ui-egui/src/i18n/zh-hant.tsv",
+        "docs/brand/artcraft-mark.png",
+        "docs/brand/artcraft-logo.png",
+        "docs/brand/artcraft-mark-black.png",
+        "docs/brand/artcraft-logo.svg",
+        "docs/brand/artcraft-logo-white.png",
+        "docs/brand/artcraft-mark.svg",
+        "docs/brand/artcraft-logo-white.svg",
+        "docs/brand/artcraft-mark-black.svg"
+      ],
+      "source_branch": "main",
+      "source_date": "2026-10-31T01:06:25-04:00",
+      "adapter_patch_sha256": "a2aa964fa6be29fb4f2aabca76cb109d510e527dcc3cdedd7b10eb2e75b61c8d"
+    }
+  ],
+  "fonts": {
+    "repository": "storytold/craft-fonts",
+    "source_commit": "aced4137c022f1f587624d48e81ec77e1914a9cc"
+  },
+  "ui_fonts": {
+    "repository": "storytold/wordcraft",
+    "source_commit": "9130181a5fdaee2293e67756fd5458c601489f3c",
+    "license": "OFL-1.1",
+    "files": {
+      "Inter-Regular.ttf": "40d692fce188e4471e2b3cba937be967878f631ad3ebbbdcd587687c7ebe0c82",
+      "Inter-Medium.ttf": "97ad806f526e41546d46365bb3a393145f75b7b1568913db74549ad8b8dba872",
+      "Inter-SemiBold.ttf": "78a843fade9d4612a5567302fb595b56976eb5fcebf4fea5a5912d638bafcde3"
+    }
+  },
+  "ui_languages": [
+    "es"
+  ],
+  "translations": {
+    "repository": "storytold/craft-i18n",
+    "source_commit": "9205108cfdced5177706264038848b68b2422d2b",
+    "files": {
+      "locales/es/common.tsv": "8dedad3f8eeb98ccdc4064c2026c2a7249d2d62c0f15d233938fb965e11f6799",
+      "locales/es/wordcraft.tsv": "7f802729c5e6eb9a6fd8bc6c8d74ffaf3e63c2e15688e9f5ac7dc120465f2fc8"
+    },
+    "supplement": "third_party/spanish/wordcraft-extra.tsv",
+    "supplement_sha256": "decd1a99671787f1b663f7a20c39d41292622f3735459683ad15da7be84ad8e7"
+  }
+}

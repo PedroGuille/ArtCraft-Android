@@ -1,0 +1,7 @@
+/cache/
+/work/
+/dist/
+/private/*
+!/private/LEEME.txt
+__pycache__/
+*.pyc
