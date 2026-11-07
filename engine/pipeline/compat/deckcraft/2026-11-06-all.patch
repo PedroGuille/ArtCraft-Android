@@ -1,0 +1,452 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index b4059e6..74cf15e 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -1310,6 +1310,7 @@ dependencies = [
+  "egui",
+  "egui_extras",
+  "egui_kittest",
++ "js-sys",
+  "log",
+  "serde",
+  "serde_json",
+diff --git a/Cargo.toml b/Cargo.toml
+index ab2b742..003e890 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -104,8 +104,8 @@ debug = "line-tables-only"
+ 
+ [profile.release]
+ opt-level = 3
+-lto = "thin"
+-codegen-units = 16
++lto = false
++codegen-units = 1
+ debug = 0
+ 
+ [patch.crates-io]
+diff --git a/apps/deckcraft-web/index.html b/apps/deckcraft-web/index.html
+index ca570df..3a4a512 100644
+--- a/apps/deckcraft-web/index.html
++++ b/apps/deckcraft-web/index.html
+@@ -1,5 +1,5 @@
+ <!DOCTYPE html>
+-<html lang="en">
++<html lang="es">
+ <head>
+   <meta charset="utf-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+@@ -15,6 +15,6 @@
+ </head>
+ <body>
+   <canvas id="deckcraft_canvas"></canvas>
+-  <div id="deckcraft_loading">Loading DeckCraft&hellip;</div>
++  <div id="deckcraft_loading">Cargando DeckCraft&hellip;</div>
+ </body>
+ </html>
+diff --git a/crates/ui-egui/Cargo.toml b/crates/ui-egui/Cargo.toml
+index 166eba2..ba132a7 100644
+--- a/crates/ui-egui/Cargo.toml
++++ b/crates/ui-egui/Cargo.toml
+@@ -38,3 +38,6 @@ egui_kittest = { workspace = true, features = ["wgpu", "snapshot"] }
+ [build-dependencies]
+ serde_json = { workspace = true }
+ toml = "1"
++
++[target.'cfg(target_arch = "wasm32")'.dependencies]
++js-sys = "0.3"
+diff --git a/crates/ui-egui/build.rs b/crates/ui-egui/build.rs
+index 8b262f1..63a3d0b 100644
+--- a/crates/ui-egui/build.rs
++++ b/crates/ui-egui/build.rs
+@@ -12,6 +12,7 @@ use std::fmt::Write as _;
+ use serde_json::Value;
+ 
+ fn main() {
++    if let Err(error) = lucy_ui_fonts() { println!("cargo::error={error}"); }
+     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../contributors");
+     let json = read(&dir.join("contributors.json"), "the About window shows no contributors", |t| {
+         serde_json::from_str::<Value>(t).map_err(|e| e.to_string())
+@@ -102,3 +103,20 @@ fn generate(json: &Value, people: &toml::Table) -> String {
+     let _ = writeln!(o, "];");
+     o
+ }
++
++// Generate the same pinned UI font input in both language profiles.
++fn lucy_ui_fonts() -> Result<(), Box<dyn std::error::Error>> {
++    println!("cargo::rerun-if-env-changed=FOLIO_UI_FONT_DIR");
++    let mut text = String::from("const FOLIO_UI_FONTS: &[(&str, &[u8])] = &[\n");
++    if let Some(dir) = std::env::var_os("FOLIO_UI_FONT_DIR") {
++        for (name, file) in [("FolioInter", "Inter-Regular.ttf"), ("FolioInterSemiBold", "Inter-SemiBold.ttf")] {
++            let path = std::path::PathBuf::from(&dir).join(file).canonicalize()?;
++            println!("cargo::rerun-if-changed={}", path.display());
++            text.push_str(&format!("({name:?}, include_bytes!({path:?})),\n"));
++        }
++    }
++    text.push_str("];\n");
++    let out = std::path::PathBuf::from(std::env::var("OUT_DIR")?);
++    std::fs::write(out.join("folio_fonts.rs"), text)?;
++    Ok(())
++}
+diff --git a/crates/ui-egui/src/app.rs b/crates/ui-egui/src/app.rs
+index 178ab24..3c40d83 100644
+--- a/crates/ui-egui/src/app.rs
++++ b/crates/ui-egui/src/app.rs
+@@ -205,6 +205,20 @@ impl SlideApp {
+     /// opening/inbox results, screenshot completions/deadlines, AutoRecover pacing and media
+     /// clocks. UI events are handled in [`Self::ui`], where a forced hidden paint also arrives.
+     pub fn logic(&mut self, ctx: &egui::Context) {
++        if let Some(dark) = crate::folio::dark() {
++            let brightness = if dark { theme::Brightness::Dark } else { theme::Brightness::Light };
++            if self.ui.brightness != brightness {
++                self.ui.brightness = brightness;
++                self.restyle = true;
++            }
++            let id = egui::Id::unique("folio.dark");
++            let previous = ctx.data_mut(|d| d.get_temp::<bool>(id));
++            if previous != Some(dark) {
++                self.textures = Default::default();
++                ctx.data_mut(|d| d.insert_temp(id, dark));
++            }
++        }
++
+         if !Self::root_viewport_admitted(ctx) {
+             log::debug!("ignoring SlideApp::logic for render-only viewport {:?}", ctx.viewport_id());
+             return;
+@@ -308,7 +322,6 @@ impl SlideApp {
+         self.sync_backstage();
+         self.keyboard(&ctx);
+         self.sync_backstage();
+-        ribbon::title_bar(self, ui);
+         if self.backstage.is_none() && self.session.active().is_some() {
+             ribbon::show(self, ui);
+             status::status_bar(self, ui);
+diff --git a/crates/ui-egui/src/backstage.rs b/crates/ui-egui/src/backstage.rs
+index 8146697..740ac63 100644
+--- a/crates/ui-egui/src/backstage.rs
++++ b/crates/ui-egui/src/backstage.rs
+@@ -24,7 +24,7 @@ mod print;
+ 
+ pub use files::split_path;
+ use files::{home, new_page, open_page};
+-use info::{PROPERTIES, about, commit_props, info, save_as};
++use info::{PROPERTIES, commit_props, info, save_as};
+ pub use info::{SAVE_TYPES, format_bytes};
+ use print::{export, print};
+ pub use print::{print_page_size, print_params, print_slides};
+@@ -47,11 +47,10 @@ pub enum Page {
+     SaveAs,
+     Print,
+     Export,
+-    About,
+ }
+ 
+ impl Page {
+-    pub const ALL: [Page; 8] = [Page::Home, Page::New, Page::Open, Page::Info, Page::SaveAs, Page::Print, Page::Export, Page::About];
++    pub const ALL: [Page; 7] = [Page::Home, Page::New, Page::Open, Page::Info, Page::SaveAs, Page::Print, Page::Export];
+ 
+     /// The id `app.backstage {page}` takes.
+     pub fn id(self) -> &'static str {
+@@ -63,16 +62,11 @@ impl Page {
+             Page::SaveAs => "saveAs",
+             Page::Print => "print",
+             Page::Export => "export",
+-            Page::About => "about",
+         }
+     }
+ 
+     pub fn parse(id: &str) -> Option<Page> {
+         let id = id.trim();
+-        // Keep existing control-channel callers working after the visible page rename.
+-        if id.eq_ignore_ascii_case("account") {
+-            return Some(Page::About);
+-        }
+         Page::ALL.into_iter().find(|p| p.id().eq_ignore_ascii_case(id))
+     }
+ 
+@@ -86,7 +80,6 @@ impl Page {
+             Page::SaveAs => "Save As",
+             Page::Print => "Print",
+             Page::Export => "Export",
+-            Page::About => "About",
+         }
+     }
+ 
+@@ -99,7 +92,6 @@ impl Page {
+             Page::SaveAs => Icon::SaveAs,
+             Page::Print => Icon::Print,
+             Page::Export => Icon::Export,
+-            Page::About => Icon::Help,
+         }
+     }
+ 
+@@ -144,7 +136,7 @@ pub fn entries(has_doc: bool) -> (Vec<Nav>, Vec<Nav>) {
+     if has_doc {
+         top.extend([Nav::Page(Page::Info), Nav::Save, Nav::Page(Page::SaveAs), Nav::Page(Page::Print), Nav::Page(Page::Export), Nav::Close]);
+     }
+-    (top, vec![Nav::Page(Page::About), Nav::Options])
++    (top, vec![Nav::Options])
+ }
+ 
+ /// Print page: which slides.
+@@ -417,7 +409,6 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
+                     Page::SaveAs => save_as(app, ui, &mut bs, &mut out),
+                     Page::Print => print(app, ui, &mut bs),
+                     Page::Export => export(app, ui, &mut bs),
+-                    Page::About => about(app, ui),
+                 }
+             });
+         });
+diff --git a/crates/ui-egui/src/backstage/info.rs b/crates/ui-egui/src/backstage/info.rs
+index 3ddbda1..565bab2 100644
+--- a/crates/ui-egui/src/backstage/info.rs
++++ b/crates/ui-egui/src/backstage/info.rs
+@@ -201,47 +201,3 @@ pub(super) fn save_as(app: &mut SlideApp, ui: &mut Ui, bs: &mut Backstage, out:
+         dim(ui, detail);
+     }
+ }
+-
+-/// Product information, project links, credits and appearance preferences.
+-pub(super) fn about(app: &mut SlideApp, ui: &mut Ui) {
+-    let t = Tokens::get(ui.ctx());
+-    // Side by side needs 480 + 40 + 340 points; stack the columns when the page is narrower.
+-    let layout = if ui.available_width() >= 860.0 { egui::Layout::left_to_right(egui::Align::Min) } else { egui::Layout::top_down(egui::Align::Min) };
+-    ui.with_layout(layout, |ui| {
+-        ui.vertical(|ui| {
+-            ui.set_width(480.0);
+-            heading(ui, "Product Information");
+-            ui.horizontal(|ui| {
+-                let (r, _) = ui.allocate_exact_size(vec2(40.0, 40.0), Sense::hover());
+-                crate::dialogs::paint_logo(ui.painter(), r);
+-                ui.label(RichText::new("DeckCraft").font(theme::bold(24.0)).color(t.text));
+-            });
+-            dim(ui, &crate::dialogs::version_line());
+-            dim(ui, "Open source under MIT OR Apache-2.0. Not affiliated with Microsoft.");
+-            ui.add_space(14.0);
+-            if task(ui, Icon::Help, "Credits", "Credits", "The people and models who built DeckCraft.", true) {
+-                let _ = app.run("app.about", json!({}));
+-            }
+-            ui.hyperlink_to("Join our community on Discord", deckcraft_engine::links::DISCORD);
+-            ui.hyperlink_to("Source on GitHub", deckcraft_engine::links::GITHUB);
+-        });
+-        ui.add_space(40.0);
+-        ui.vertical(|ui| {
+-            ui.set_width(340.0);
+-            heading(ui, "Appearance");
+-            let dark = app.ui.brightness == theme::Brightness::Dark;
+-            craft_ui::ComboBox::from_id_salt("backstage_appearance")
+-                .width(260.0)
+-                .selected_text(if dark { "Dark" } else { "Light" })
+-                .show_ui(ui, |ui| {
+-                    for (on, label) in [(false, "Light"), (true, "Dark")] {
+-                        if ui.selectable_label(dark == on, label).clicked() {
+-                            let _ = app.run("view.dark", json!({"on": on}));
+-                        }
+-                    }
+-                })
+-                .response
+-                .widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, "Appearance"));
+-        });
+-    });
+-}
+diff --git a/crates/ui-egui/src/backstage/tests.rs b/crates/ui-egui/src/backstage/tests.rs
+index a21cd3c..ec0cfe9 100644
+--- a/crates/ui-egui/src/backstage/tests.rs
++++ b/crates/ui-egui/src/backstage/tests.rs
+@@ -85,13 +85,13 @@ fn page_ids_round_trip_and_unknown_ids_are_refused() {
+         assert_eq!(Page::parse(p.id()), Some(p));
+     }
+     assert_eq!(Page::parse(" SAVEAS "), Some(Page::SaveAs));
+-    assert_eq!(Page::parse("account"), Some(Page::About));
+-    assert_eq!(Page::parse("about"), Some(Page::About));
++    assert_eq!(Page::parse("account"), None);
++    assert_eq!(Page::parse("about"), None);
+     assert_eq!(Page::parse("share"), None);
+     assert_eq!(Page::parse(""), None);
+     let (top, bottom) = entries(false);
+     assert_eq!(top, vec![Nav::Page(Page::Home), Nav::Page(Page::New), Nav::Page(Page::Open)], "the start screen has no presentation pages");
+-    assert_eq!(bottom, vec![Nav::Page(Page::About), Nav::Options]);
++    assert_eq!(bottom, vec![Nav::Options]);
+     assert_eq!(entries(true).0.len(), 9);
+     assert_eq!(split_path("/home/me/Talk.pptx"), ("Talk.pptx".into(), "/home/me".into()));
+     assert_eq!(format_bytes(512), "512 bytes");
+@@ -160,7 +160,7 @@ fn alt_f_arrows_enter_and_esc_drive_the_side_menu() {
+ fn every_page_renders() {
+     let mut h = harness(new_app());
+     let last_theme = deckcraft_model::theme::builtin_themes().last().map(|t| t.name.clone()).unwrap();
+-    let checks: [(Page, &str); 8] = [
++    let checks: [(Page, &str); 7] = [
+         (Page::Home, "Recent"),
+         (Page::New, &last_theme),
+         (Page::Open, "Browse"),
+@@ -168,7 +168,6 @@ fn every_page_renders() {
+         (Page::SaveAs, "Not saved yet"),
+         (Page::Print, "Print Hidden Slides"),
+         (Page::Export, "Create PDF Document"),
+-        (Page::About, "Credits"),
+     ];
+     for (p, marker) in checks {
+         h.state_mut().run("app.backstage", json!({"page": p.id()})).unwrap();
+@@ -765,26 +764,6 @@ fn options_in_backstage_opens_preferences_and_cancel_closes_it() {
+     assert!(h.state().backstage_open(), "Backstage remains open");
+ }
+ 
+-/// About replaces the account entry and still opens the credits dialog.
+-#[test]
+-fn about_has_product_links_and_credits_without_account_controls() {
+-    let mut h = harness(new_app());
+-    h.get_by_label("File").click();
+-    h.run_steps(3);
+-    assert!(h.query_by_label("Account").is_none());
+-    click_nav(&h, "About");
+-    h.run_steps(3);
+-    assert_eq!(page(&h), Some(Page::About));
+-    assert!(h.query_by_label("User Information").is_none());
+-    assert!(h.query_by_label("Source on GitHub").is_some());
+-    assert!(h.query_by_label("Join our community on Discord").is_some());
+-    assert!(h.query_all_by_label("Appearance").next().is_some());
+-    click_on_page(&h, "Credits");
+-    h.run_steps(3);
+-    assert!(h.state().dialog.is_some());
+-    assert!(h.query_by_label("Contributors").is_some());
+-    assert!(h.query_by_label("Models").is_some());
+-}
+ 
+ /// At the 900-point minimum window width the About columns stack and Appearance stays on the page.
+ #[test]
+diff --git a/crates/ui-egui/src/folio.rs b/crates/ui-egui/src/folio.rs
+new file mode 100644
+index 0000000..caebb20
+--- /dev/null
++++ b/crates/ui-egui/src/folio.rs
+@@ -0,0 +1,49 @@
++//! Folio Android display preference. This never changes the document model.
++#[cfg(target_arch = "wasm32")]
++pub fn dark() -> Option<bool> {
++    js_sys::Reflect::get(&js_sys::global(), &"__folioDark".into()).ok().and_then(|v| v.as_bool())
++}
++#[cfg(not(target_arch = "wasm32"))]
++pub fn dark() -> Option<bool> {
++    None
++}
++
++/// Remap neutral screen paints while preserving coloured content and alpha.
++pub fn color(c: egui::Color32, dark: bool) -> egui::Color32 {
++    if !dark {
++        return c;
++    }
++    let [r, g, b, a] = c.to_srgba_unmultiplied();
++    if r.max(g).max(b).saturating_sub(r.min(g).min(b)) > 20 {
++        return c;
++    }
++    let map = |v: u8| (255u16.saturating_sub(u16::from(v) * 204 / 255)) as u8;
++    egui::Color32::from_rgba_unmultiplied(map(r), map(g), map(b), a)
++}
++
++pub fn image(mut image: egui::ColorImage) -> egui::ColorImage {
++    if dark() == Some(true) {
++        for pixel in &mut image.pixels {
++            *pixel = color(*pixel, true);
++        }
++    }
++    image
++}
++
++include!(concat!(env!("OUT_DIR"), "/folio_fonts.rs"));
++
++/// Replace interface families only. Cell and document font families retain their own data.
++pub fn install_ui_fonts(fonts: &mut egui::FontDefinitions, regular: &str, bold: &str) {
++    if FOLIO_UI_FONTS.is_empty() {
++        return;
++    }
++    for (name, bytes) in FOLIO_UI_FONTS {
++        fonts.font_data.insert((*name).into(), std::sync::Arc::new(egui::FontData::from_static(bytes)));
++    }
++    let mut fallback = fonts.families.get(&egui::FontFamily::Proportional).cloned().unwrap_or_default();
++    fallback.insert(0, "FolioInter".into());
++    fonts.families.insert(egui::FontFamily::Proportional, fallback.clone());
++    fonts.families.insert(egui::FontFamily::Name(regular.into()), fallback.clone());
++    fallback.insert(0, "FolioInterSemiBold".into());
++    fonts.families.insert(egui::FontFamily::Name(bold.into()), fallback);
++}
+diff --git a/crates/ui-egui/src/lib.rs b/crates/ui-egui/src/lib.rs
+index 08fcc23..040882f 100644
+--- a/crates/ui-egui/src/lib.rs
++++ b/crates/ui-egui/src/lib.rs
+@@ -22,6 +22,7 @@ pub mod control;
+ pub mod dialogs;
+ pub mod doc_window;
+ pub mod eyedropper;
++mod folio;
+ pub mod icons;
+ pub mod media;
+ pub mod menus;
+@@ -137,7 +138,6 @@ pub const UI_COMMANDS: &[(&str, &str, Option<&str>, &str)] = &[
+         Some("Cmd+P"),
+         "{layout?, perPage?, slides?, includeHidden?, frame?, paper?: letter|a4|legal|a3, orientation?: portrait|landscape}",
+     ),
+-    ("app.about", "About DeckCraft", None, "{}"),
+     ("app.checkUpdates", "Check for Updates…", None, "{}"),
+     ("app.palette", "Command Palette", Some("Cmd+Shift+P"), "{}"),
+     ("app.preferences", "Preferences…", Some("Cmd+,"), "{}"),
+@@ -157,7 +157,6 @@ pub const UI_COMMANDS: &[(&str, &str, Option<&str>, &str)] = &[
+     ("app.qat", "Quick Access Toolbar", None, "{add: command id, params?, label?, icon?} | {remove: id, params?} | {reset: true} → [buttons]"),
+     ("app.find", "Find…", Some("Cmd+F"), "{}"),
+     ("app.replace", "Replace…", Some("Cmd+H"), "{}"),
+-    ("app.links", "Community Links", None, "{}"),
+ ];
+ 
+ pub struct Perf {
+diff --git a/crates/ui-egui/src/menus.rs b/crates/ui-egui/src/menus.rs
+index fb4c50f..46e84af 100644
+--- a/crates/ui-egui/src/menus.rs
++++ b/crates/ui-egui/src/menus.rs
+@@ -307,7 +307,7 @@ pub fn menu_tree() -> Vec<(&'static str, Vec<(&'static str, &'static str)>)> {
+                 ("Set Up Show…", "show.setup"),
+             ],
+         ),
+-        ("Help", vec![("About DeckCraft", "app.about"), ("Check for Updates…", "app.checkUpdates"), ("Command Palette", "app.palette")]),
++        ("Help", vec![("Check for Updates…", "app.checkUpdates"), ("Command Palette", "app.palette")]),
+     ]
+ }
+ 
+diff --git a/crates/ui-egui/src/ribbon.rs b/crates/ui-egui/src/ribbon.rs
+index 7d2ab7a..ef910f2 100644
+--- a/crates/ui-egui/src/ribbon.rs
++++ b/crates/ui-egui/src/ribbon.rs
+@@ -126,7 +126,7 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
+     if !TABS.contains(&app.ui.tab.as_str()) && !ctx_tabs.contains(&app.ui.tab.as_str()) {
+         app.ui.tab = "Home".into();
+     }
+-    let h = 28.0 + if app.ui.ribbon_collapsed { 4.0 } else { RIBBON_H + 20.0 };
++    let h = 24.0 + if app.ui.ribbon_collapsed { 4.0 } else { RIBBON_H + 20.0 };
+     egui::Panel::top("ribbon").exact_size(h).frame(egui::Frame::NONE.fill(t.chrome)).show(ui, |ui| {
+         let rect = ui.max_rect();
+         // Tabs. File comes first and opens the File tab's full-window view (Backstage), as in
+diff --git a/crates/ui-egui/src/theme.rs b/crates/ui-egui/src/theme.rs
+index 2e14bba..9054d81 100644
+--- a/crates/ui-egui/src/theme.rs
++++ b/crates/ui-egui/src/theme.rs
+@@ -234,6 +234,7 @@ pub fn font_definitions(extra: &[std::sync::Arc<deckcraft_fonts::FontFace>]) ->
+             *d = std::sync::Arc::new(data);
+         }
+     }
++    crate::folio::install_ui_fonts(&mut defs, "ui", "bold");
+     defs
+ }
+ 
+diff --git a/docs/folio-android.md b/docs/folio-android.md
+new file mode 100644
+index 0000000..3a1c4a9
+--- /dev/null
++++ b/docs/folio-android.md
+@@ -0,0 +1,9 @@
++# Folio Android integration
++
++2026-10-23. Local downstream fork for Folio Office 0.5.0.
++
++Folio owns document tabs, save, undo, redo and the appearance preference. The duplicate native title strip and the Account, About and community promotions are removed. Required copyright and licence notices remain in the Android distribution. Dark document colours affect only rendering; document data and exports retain their original colours.
++
++Validation: WebAssembly release build and Folio browser import/edit/export integration tests. Android APK assembly and signature verification.
++
++The primary menu row is 24 logical pixels (80% of WordCraft's previous 30), with Inter 12.5 pt and semibold selection. GridCraft and DeckCraft take the same pinned, OFL Inter family as an optional build input; model and cell fonts are unchanged.

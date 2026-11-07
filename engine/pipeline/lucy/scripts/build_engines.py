@@ -65,10 +65,10 @@ def prepare_ui_fonts():
 
 
 
-def prepare_translations():
+def prepare_translations(engine=None):
     """Prepare the pinned upstream catalogs or the separate Spanish profile."""
-    spec = LOCK["translations"]
-    if LOCK.get("language_mode") == "all":
+    spec = (engine or {}).get("translations", LOCK["translations"])
+    if LOCK.get("language_mode") == "all" or (engine or {}).get("adapter_profile"):
         full = ROOT / ".cache/full-i18n" / spec["source_commit"]
         if not full.exists():
             full.parent.mkdir(parents=True, exist_ok=True)
@@ -228,7 +228,6 @@ def main():
         env["FOLIO_OPTIMIZE_WASM"] = "1"
     if not args.install_only:
         env["FOLIO_UI_FONT_DIR"] = str(prepare_ui_fonts())
-        env["CRAFT_I18N_DIR"] = str(prepare_translations())
         env["CRAFT_I18N_REQUIRED"] = "1"
     fonts = args.source_root.resolve() / "craft-fonts"
     if not args.install_only:
@@ -264,6 +263,7 @@ def main():
             head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True).strip()
             if head != engine["source_commit"]:
                 raise ValueError("Editor checkout is not pinned to the required commit")
+            env["CRAFT_I18N_DIR"] = str(prepare_translations(engine))
             prune_source(engine, source)
             actual_patch = source_diff(engine, source)
             if actual_patch != (PATCHES / (engine["id"] + ".patch")).read_bytes():

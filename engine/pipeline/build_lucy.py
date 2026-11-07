@@ -120,6 +120,7 @@ def clone_commit(repo, commit, folder, extra_commit=None):
 
 def apply_adapter(engine, project, sources):
     name = engine['id'];source = sources / name
+    import compatibility
     clone_commit(REPOS[name], engine['source_commit'], source, engine['adapter_base_commit'])
     patch = project / 'third_party/patches' / (name + '.patch')
     multilingual = engine.get('language_mode') == 'all'
@@ -133,9 +134,34 @@ def apply_adapter(engine, project, sources):
     # --3way it preserves non-overlapping upstream edits; conflicts stop the job.
     result = subprocess.run(['git', 'apply', '--3way', '--index', str(patch)], cwd=source,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    reviewed = False
+    if result.returncode:
+        candidate = compatibility.profile(engine['id'], engine.get('language_mode', 'es'))
+        if candidate is not None:
+            # A failed merge only touched this new, builder-owned checkout. Reset
+            # it before trying the separately reviewed adapter; never build markers.
+            run(['git', 'reset', '--hard', '--quiet', 'HEAD'], source)
+            extras = subprocess.check_output(['git', 'ls-files', '--others', '--exclude-standard', '-z'], cwd=source)
+            for item in extras.split(b'\0'):
+                if not item:continue
+                relative = Path(os.fsdecode(item))
+                if relative.is_absolute() or '..' in relative.parts:raise BuildError('Ruta temporal inválida')
+                (source / relative).unlink(missing_ok=True)
+            base = candidate['base_commit']
+            if subprocess.run(['git', 'cat-file', '-e', base + '^{commit}'], cwd=source, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
+                run(['git', 'fetch', '--quiet', '--depth=1', 'origin', base], source)
+            result = subprocess.run(['git', 'apply', '--3way', '--index', str(candidate['path'])], cwd=source,
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            if result.returncode == 0:
+                reviewed = True
+                engine['adapter_base_commit'] = base
+                engine['adapter_profile'] = '2026-11-06'
+                engine['source_prune'] = list(candidate['source_prune'])
+                if engine.get('language_mode', 'es') == 'es':
+                    compatibility.spanish_only(source, engine['id'])
     if result.returncode:
         conflicts = run(['git', 'diff', '--name-only', '--diff-filter=U'], source, capture=True).strip()
-        raise BuildError(name + ': la versión nueva requiere actualizar el adaptador.\n' +
+        raise BuildError(engine['id'] + ': la versión nueva requiere actualizar el adaptador.\n' +
                          (conflicts or result.stdout[-12000:]))
     root = source.resolve()
     for name in engine.get('source_prune', []):
@@ -151,12 +177,17 @@ def apply_adapter(engine, project, sources):
         for p in ui_catalogs.iterdir():
             if re.fullmatch(r'[a-z]{2,3}(?:-[a-z]{2,5})?\.(?:tsv|rs)', p.name) and p.stem not in {'es', 'mod', 'rtl', 'sys', 'lib'}:
                 p.unlink();prune.add(p.relative_to(source).as_posix())
-    if multilingual:
+    if multilingual and not reviewed:
         import languages
         languages.restore(source, engine['id'])
     engine['source_prune'] = sorted(prune)
     excludes = [':(exclude)' + p for p in engine['source_prune']]
     patch.write_bytes(subprocess.check_output(['git', 'diff', '--binary', 'HEAD', '--', '.', *excludes], cwd=source))
+    rev_file = source / 'craft-i18n.rev'
+    if reviewed and rev_file.is_file():
+        rev = rev_file.read_text().strip()
+        if not SHA.fullmatch(rev):raise BuildError('Revisión de idiomas inválida')
+        engine['translations'] = {'repository':'storytold/craft-i18n', 'source_commit':rev}
     engine['version'] = tomllib.loads((source / 'Cargo.toml').read_text())['workspace']['package']['version']
     run(['git', 'diff', '--check', 'HEAD'], source)
     return source

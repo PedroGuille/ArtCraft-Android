@@ -6,7 +6,7 @@ from .catalog import BY_ID,OFFICE,selection
 from .core import ROOT,legacy,bootstrap,pipeline
 from . import host
 
-VERSION='2.1.1'
+VERSION='2.2.0'
 def emit(kind,**fields):print('@LUCY '+json.dumps({'event':kind,**fields},ensure_ascii=False),flush=True)
 def save(path,value):legacy.save_json(path,value)
 

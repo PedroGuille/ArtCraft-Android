@@ -102,6 +102,16 @@ def load_adapter(kit: Path) -> tuple[dict, str]:
             if not re.fullmatch(r"[a-f0-9]{64}", record[key]):
                 raise AdapterError("Hash de compatibilidad inválido.")
         checked_payload(kit, record["source"], record["sha256"])
+    for profile in adapter.get("source_profiles", []):
+        if not profile.get("match") or not profile.get("files"):
+            raise AdapterError("Perfil de fuentes vacío.")
+        for name, expected in profile["match"].items():
+            relative_name(name)
+            if not re.fullmatch(r"[a-f0-9]{64}", expected):
+                raise AdapterError("Hash de fuentes inválido.")
+        for record in profile["files"]:
+            relative_name(record["path"])
+            checked_payload(kit, record["source"], record["sha256"])
     # Hashes in the manifest cover source files. Include the builder too, so an
     # output cannot be silently reused after its integration algorithm changes.
     return adapter, sha(raw + (kit / "tablet.py").read_bytes())
@@ -303,6 +313,23 @@ def prepare(archive: Path, output: Path, kit: Path = KIT) -> dict:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
             path.chmod(record["mode"])
+        # New upstream APIs can require different tablet-owned modules too.
+        # Use a reviewed combination only when every relevant original input
+        # matches; older bases keep their original integration unchanged.
+        for profile in adapter.get("source_profiles", []):
+            if not all(original_hashes.get(name) == expected for name, expected in profile["match"].items()):
+                continue
+            replaced = set()
+            for record in profile["files"]:
+                name = relative_name(record["path"])
+                path = source / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(checked_payload(kit, record["source"], record["sha256"]))
+                path.chmod(record.get("mode", 0o644))
+                replaced.add(name)
+            report["conflicts"] = [row for row in report["conflicts"] if row["path"] not in replaced]
+            report["source_profile"] = profile["id"]
+            break
         # The lock file is NOT text-merged. For the known upstream snapshot use
         # the reviewed tablet lock. For newer snapshots, Cargo resolves only
         # the additional Android packages against the incoming lock at build time.

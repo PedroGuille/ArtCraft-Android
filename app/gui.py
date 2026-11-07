@@ -36,7 +36,7 @@ class BuilderWindow(Adw.ApplicationWindow):
    row=Gtk.ListBoxRow();row.page_name=key;box=Gtk.Box(spacing=12);box.set_margin_top(10);box.set_margin_bottom(10);box.set_margin_start(10);box.set_margin_end(10);box.append(Gtk.Image.new_from_icon_name(icon));box.append(label(title));row.set_child(box);self.navigation.append(row)
   sidebar.append(self.navigation);spacer=Gtk.Box(vexpand=True);sidebar.append(spacer)
   sidebar.append(label('Local en tu PC','heading'));sidebar.append(label('Fuentes, herramientas y firmas\nen una caché reutilizable.','dim-label'))
-  sidebar.append(label('Versión 2.1.1','caption'));split.append(sidebar);split.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+  sidebar.append(label('Versión 2.2.0','caption'));split.append(sidebar);split.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
   self.stack=Gtk.Stack(hexpand=True,vexpand=True,transition_type=Gtk.StackTransitionType.CROSSFADE)
   split.append(self.stack)
   self.stack.add_named(self.applications_page(),'applications');self.stack.add_named(self.lucy_page(),'lucy');self.stack.add_named(self.history_page(),'history');self.stack.add_named(self.settings_page(),'settings')
