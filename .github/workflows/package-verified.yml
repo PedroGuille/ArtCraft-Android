@@ -6,9 +6,8 @@ on:
     paths: ['.github/workflows/package-verified.yml']
 permissions:
   contents: read
-  actions: read
 jobs:
-  bundle:
+  ready:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
