@@ -1,4 +1,4 @@
-# Lucy Builder 2.3.0
+# Lucy Builder 2.3.1
 
 Aplicación **Linux x86_64 Flatpak. Descarga código fuente de la suite Craft y genera APK Android localmente, probablemente deje de funcionar en futuras actualizaciones, pero es mas facil de mantener que portear cada app por separado
 
@@ -7,7 +7,7 @@ Aplicación **Linux x86_64 Flatpak. Descarga código fuente de la suite Craft y 
 Cerrá Lucy Builder y abrí el Flatpak nuevo en el gestor de software. También podés ejecutar:
 
 ```sh
-flatpak install --user --reinstall ./Lucy-Builder-2.3.0-x86_64.flatpak
+flatpak install --user --reinstall ./Lucy-Builder-2.3.1-x86_64.flatpak
 flatpak run io.github.pedroguille.LucyBuilder
 ```
 
@@ -29,6 +29,8 @@ Marcá una o varias aplicaciones y elegí **Descargar fuentes** o **Compilar APK
 
 En Configuración → Fuentes a compilar:
 
+* **Revisadas · 09/11/2026**: incluye CADCraft 0.19.0, fijado por su commit publicado y adaptado a Android.
+
 * **Versiones base guardadas**: usa los commits incluidos en `app/verified.json`; no consulta main ni reemplaza las referencias cuando aparece otra versión.
 * **Última versión publicada**: consulta la última release del repositorio y resuelve su tag al commit exacto antes de descargar.
 * **Desarrollo · main de GitHub**: consulta la rama actual. Puede necesitar adaptar el port de Android cuando upstream cambia.
@@ -39,7 +41,7 @@ La base ofimática es WordCraft 0.14.0, PDFcraft 0.17.0, GridCraft 0.15.0 y Deck
 
 ## Compatibilidad actualizada
 
-Lucy Builder 2.3.0 añade adaptadores revisados para las fuentes de WordCraft 0.15.1, PDFcraft 0.18.1, GridCraft 0.16.0, DeckCraft 0.15.0 y CADCraft 0.17.0 revisadas el 9 de noviembre de 2026. Elegí **Revisadas · 09/11/2026** para reproducir esta entrega. Se conservan las versiones base anteriores, las publicaciones y main.
+Lucy Builder 2.3.1 añade adaptadores revisados para las fuentes de WordCraft 0.15.1, PDFcraft 0.18.1, GridCraft 0.16.0, DeckCraft 0.15.0 y CADCraft 0.19.0 revisadas el 9 de noviembre de 2026. Elegí **Revisadas · 09/11/2026** para reproducir esta entrega. Se conservan las versiones base anteriores, las publicaciones y main.
 
 Una revisión exacta usa su adaptador revisado. Otras fuentes prueban la integración anterior y después la revisada; si ambos fallan, detiene la compilación y muestra los archivos afectados. Nunca sustituye las fuentes nuevas por un motor antiguo. Los perfiles de idiomas mantienen sus catálogos y la caché distingue los adaptadores.
 
@@ -66,7 +68,7 @@ python3 release_source.py
 
 También se incluye el manifiesto estándar en `flatpak/io.github.pedroguille.LucyBuilder.json` para flatpak-builder. El código del constructor es MIT; las fuentes de cada aplicación conservan sus licencias y atribuciones.
 
-No se realizaron compilaciones completas de todas las APK con el perfil multilingüe de esta entrega. Las comprobaciones realizadas se describen en VALIDACION-2.3.0.md.
+No se realizaron compilaciones completas de todas las APK con el perfil multilingüe de esta entrega. Las comprobaciones realizadas se describen en VALIDACION-2.3.1.md.
 
 ## Porque solo Linux y Flatpak
 Es mas facil de hacer y mantener, también es mas facil de usar sin sufrir dependency hell

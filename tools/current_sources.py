@@ -5,7 +5,7 @@ import argparse, copy, hashlib, importlib.util, json, os, re, shutil, subprocess
 
 ROOT=Path(__file__).resolve().parents[1]
 WORK=Path(os.environ.get('LUCY_BUILD_WORK', str(ROOT.parent/'lucy-build-work'))).resolve()
-HEADS={'wordcraft':'05f781cfdac1d89034c0f4f5824b597ff845f2ef','pdfcraft':'ba28458ad8bd8d8b5b83c14f643bfa8ce9592f60','gridcraft':'e9addf52fe68847e6c1310fcfa5d42b7aa8b9650','deckcraft':'0623b430324cf4c3d1962e6ae7885cf30c011c5e','cadcraft':'a3d9348f63c2ad35391cc93980dc7ee7366f2ad6'}
+HEADS={'wordcraft':'05f781cfdac1d89034c0f4f5824b597ff845f2ef','pdfcraft':'ba28458ad8bd8d8b5b83c14f643bfa8ce9592f60','gridcraft':'e9addf52fe68847e6c1310fcfa5d42b7aa8b9650','deckcraft':'0623b430324cf4c3d1962e6ae7885cf30c011c5e','cadcraft':'227e3c385b20129cf525775e3d9cbe78b722b3bb'}
 OLD={'wordcraft':'729cd0a5fc953bbedbfdec4f6af18ad6d1780b3b','gridcraft':'6a8eb4ff42cfa88b5bdd3eec13c6db3874d95214','pdfcraft':'f42fda734243b66f54db87923d7c981d5221419e','deckcraft':'159ed07eb3f0522a5dc97d7cf1858242a6638659'}
 sys.path.insert(0,str(ROOT))
 
@@ -195,7 +195,7 @@ def verified_download(url,expected,target,limit=64*1024*1024):
     try:
         for attempt in range(3):
             try:
-                request=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 Lucy-Builder/2.3.0'})
+                request=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 Lucy-Builder/2.3.1'})
                 with urllib.request.urlopen(request,timeout=60) as response,part.open('wb') as output:
                     size=0
                     while chunk:=response.read(1024*1024):
@@ -269,7 +269,7 @@ def compile_editor(engine,source,env):
 
 def refresh_builder(snapshot):
     for name in ['app/worker.py','app/host.py','app/native_cad.py','app/gui.py','build_flatpak.py','release_source.py','README.md']:
-        p=ROOT/name;p.write_text(p.read_text().replace('2.2.0','2.3.0'))
+        p=ROOT/name;p.write_text(p.read_text().replace('2.2.0','2.3.1'))
     edit('release_source.py','(2026,11,6,0,0,0)','(2026,11,9,0,0,0)')
     edit('engine/pipeline/build_lucy.py',"engine['adapter_profile'] = '2026-11-06'","engine['adapter_profile'] = candidate.get('reviewed_at', '2026-11-06')")
     edit('engine/pipeline/build_lucy.py',
@@ -334,12 +334,12 @@ def selected_index(settings):
     s=s.replace('Las versiones base quedan fijadas por commit y permiten volver atrás.','Las revisadas fijan las fuentes actuales de los cuatro editores y CADCraft. El resto conserva sus referencias base. Las versiones anteriores siguen disponibles.')
     p.write_text(s)
     old=json.loads((ROOT/'app/verified.json').read_text());old['heads'].update(HEADS);old['baseline_date']='2026-11-09';old['fonts']=snapshot['engine_lock']['fonts'];old['translations']=snapshot['engine_lock']['translations'];old['validated_apps']=list(HEADS)
-    old['versions'].update(wordcraft='0.15.1',pdfcraft='0.18.1',gridcraft='0.16.0',deckcraft='0.15.0',cadcraft='0.17.0');save(ROOT/'app/reviewed.json',old)
+    old['versions'].update(wordcraft='0.15.1',pdfcraft='0.18.1',gridcraft='0.16.0',deckcraft='0.15.0',cadcraft='0.19.0');save(ROOT/'app/reviewed.json',old)
     p=ROOT/'app/web.py';s=p.read_text().replace("Path(__file__).parents[1]/'app/verified.json'","Path(__file__).parents[1]/'app'/('reviewed.json' if job['revision_mode']=='reviewed' else 'verified.json')").replace("if job['revision_mode']=='verified' else pipeline.latest","if job['revision_mode'] in {'reviewed','verified'} else pipeline.latest");p.write_text(s)
-    p=ROOT/'flatpak/io.github.pedroguille.LucyBuilder.metainfo.xml';s=p.read_text().replace('<releases>','<releases><release version="2.3.0" date="2026-11-09"><description><p>Pin current sources with a separate older fallback; refresh all five Android adapters and package the new PDF OCR worker and offline models.</p></description></release>',1);p.write_text(s)
+    p=ROOT/'flatpak/io.github.pedroguille.LucyBuilder.metainfo.xml';s=p.read_text().replace('<releases>','<releases><release version="2.3.1" date="2026-11-09"><description><p>Pin current sources with a separate older fallback; refresh all five Android adapters and package the new PDF OCR worker and offline models.</p></description></release>',1);p.write_text(s)
     p=ROOT/'README.md';s=p.read_text().replace('revisadas el 6 de noviembre de 2026','revisadas el 9 de noviembre de 2026').replace('Elegí **Desarrollo · main de GitHub** para descargarlas. **Versiones base guardadas** conserva las revisiones anteriores.','Elegí **Revisadas · 09/11/2026** para reproducir esta entrega. Se conservan las versiones base anteriores, las publicaciones y main.').replace('El constructor prueba primero el adaptador anterior y, si hay conflictos, el adaptador revisado;','Una revisión exacta usa su adaptador revisado. Otras fuentes prueban la integración anterior y después la revisada;');p.write_text(s)
     p=ROOT/'tests/integration_package.py';s=p.read_text().replace("assert len([n for n in archive.namelist() if n.endswith('.wasm')])==len(ids)","assert all('assets/engines/'+name+'/'+name+'-web_bg.wasm' in archive.namelist() for name in ids)");p.write_text(s)
-    p=ROOT/'flatpak/io.github.pedroguille.LucyBuilder.json';p.write_text(p.read_text().replace('README.md LICENSE /app/lib/lucy-builder/','README.md LICENSE VALIDACION-2.3.0.md /app/lib/lucy-builder/'))
+    p=ROOT/'flatpak/io.github.pedroguille.LucyBuilder.json';p.write_text(p.read_text().replace('README.md LICENSE /app/lib/lucy-builder/','README.md LICENSE VALIDACION-2.3.1.md /app/lib/lucy-builder/'))
     kit=ROOT/'native-cad';blocked={'__pycache__','.git','cache','work','dist','private','target'}
     lines=[sha(p)+'  '+p.relative_to(kit).as_posix() for p in sorted(kit.rglob('*')) if p.is_file() and not p.is_symlink() and p.name!='CONTENTS.sha256' and not set(p.relative_to(kit).parts)&blocked and p.suffix not in {'.pyc','.p12','.pfx','.jks','.keystore','.apk'}]
     (kit/'CONTENTS.sha256').write_text('\n'.join(lines)+'\n')
@@ -366,7 +366,7 @@ def prepare():
         print('Current reviewed adapters already present; preparation left them unchanged.',flush=True)
         return
     snapshot=port_office();port_cad();refresh_builder(snapshot)
-    (ROOT/'VALIDACION-2.3.0.md').write_text('# Validación 2.3.0\n\nFuentes fijadas el 9 de noviembre de 2026. La compilación y las verificaciones se registran en el workflow de esta entrega.\n')
+    (ROOT/'VALIDACION-2.3.1.md').write_text('# Validación 2.3.1\n\nFuentes fijadas el 9 de noviembre de 2026. La compilación y las verificaciones se registran en el workflow de esta entrega.\n')
     run([sys.executable,'-m','compileall','-q','app','engine','native-cad'],ROOT)
     print('Prepared current office and native CAD adapters.',flush=True)
 
@@ -392,7 +392,7 @@ def build():
                 if any(n.startswith('assets/engines/deckcraft/') for n in z.namelist()):raise ValueError('DeckCraft entered Lucy')
                 if not any(n.startswith('assets/engines/pdfcraft/models/') and n.endswith('.onnx') for n in z.namelist()):raise ValueError('OCR models missing')
                 if not any('pdfcraft-ocr-worker-' in n and n.endswith('.wasm') for n in z.namelist()):raise ValueError('OCR worker missing')
-        name='CADCraft-Tablet-0.17.0-arm64-v8a.apk' if mode=='individual' else 'Lucy-WordCraft-PDFcraft-GridCraft.apk'
+        name='CADCraft-Tablet-0.19.0-arm64-v8a.apk' if mode=='individual' else 'Lucy-WordCraft-PDFcraft-GridCraft.apk'
         shutil.copyfile(apk,dest/name)
         save(dest/(product+'-build-info.json'),{k:v for k,v in info.items() if k not in {'apk','source','report','output'}})
     print('Selected Android products compiled, signed and verified.',flush=True)
@@ -400,17 +400,17 @@ def build():
 def package():
     dest=ROOT/'deliverables';dest.mkdir(exist_ok=True)
     table='\n'.join('| '+n+' | '+h+' |' for n,h in HEADS.items())
-    (ROOT/'VALIDACION-2.3.0.md').write_text('# Validación de Lucy Builder 2.3.0\n\n## Fuentes\n\n| App | Commit |\n| --- | --- |\n'+table+'\n\n## Comprobaciones\n\n- Pruebas Python y regresión JavaScript del constructor.\n- Compilaciones release: CADCraft ARM64 nativo y los cuatro motores WebAssembly.\n- Registro de la compilación release de DeckCraft: https://github.com/PedroGuille/ArtCraft-Android/actions/runs/42661556613/job/129314155900 (paso de compilación completado; el fallo posterior fue del empaquetado Flatpak).\n- APK de Lucy con WordCraft, PDFcraft y GridCraft; se verifica que DeckCraft no esté incluido.\n- PDFcraft incluye su worker OCR, modelos ONNX verificados por SHA-256, licencia y atribuciones.\n- APK de CADCraft con firma verificada y soporte de páginas nativas de 16 KiB.\n- Flatpak creado con las herramientas oficiales.\n\nNo se probaron en un dispositivo físico ni se recompilaron las otras diez aplicaciones del catálogo. Las versiones anteriores siguen disponibles. Cambios posteriores de main pueden necesitar adaptar las fuentes otra vez.\n')
+    (ROOT/'VALIDACION-2.3.1.md').write_text('# Validación de Lucy Builder 2.3.1\n\n## Fuentes\n\n| App | Commit |\n| --- | --- |\n'+table+'\n\n## Comprobaciones\n\n- Pruebas Python y regresión JavaScript del constructor.\n- Compilaciones release: CADCraft ARM64 nativo y los cuatro motores WebAssembly.\n- Registro de la compilación release de DeckCraft: https://github.com/PedroGuille/ArtCraft-Android/actions/runs/42661556613/job/129314155900 (paso de compilación completado; el fallo posterior fue del empaquetado Flatpak).\n- APK de Lucy con WordCraft, PDFcraft y GridCraft; se verifica que DeckCraft no esté incluido.\n- PDFcraft incluye su worker OCR, modelos ONNX verificados por SHA-256, licencia y atribuciones.\n- APK de CADCraft con firma verificada y soporte de páginas nativas de 16 KiB.\n- Flatpak creado con las herramientas oficiales.\n\nNo se probaron en un dispositivo físico ni se recompilaron las otras diez aplicaciones del catálogo. Las versiones anteriores siguen disponibles. Cambios posteriores de main pueden necesitar adaptar las fuentes otra vez.\n')
     # Package the completed validation record.
     run([sys.executable,'build_flatpak.py','--output',dest],ROOT)
-    names=['Lucy-Builder-2.3.0-x86_64.flatpak','CADCraft-Tablet-0.17.0-arm64-v8a.apk','Lucy-WordCraft-PDFcraft-GridCraft.apk']
+    names=['Lucy-Builder-2.3.1-x86_64.flatpak','CADCraft-Tablet-0.19.0-arm64-v8a.apk','Lucy-WordCraft-PDFcraft-GridCraft.apk']
     (dest/'SHA256SUMS.txt').write_text(''.join(sha(dest/n)+'  '+n+'\n' for n in names))
     record_sources()
     print('Ready:',names,flush=True)
 
 def record_sources():
     dest=ROOT/'deliverables';dest.mkdir(exist_ok=True)
-    run(['git','add','app','engine','native-cad','tests','flatpak','README.md','build_flatpak.py','release_source.py','VALIDACION-2.3.0.md'],ROOT)
+    run(['git','add','app','engine','native-cad','tests','flatpak','README.md','build_flatpak.py','release_source.py','VALIDACION-2.3.1.md'],ROOT)
     git(ROOT,'diff','--cached','--check')
     patch=subprocess.check_output(['git','diff','--cached','--binary','HEAD'],cwd=ROOT)
     (dest/'constructor-source-update.patch').write_bytes(patch)

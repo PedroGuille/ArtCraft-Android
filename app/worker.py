@@ -7,7 +7,7 @@ from .revisions import MODES
 from .core import ROOT,legacy,bootstrap,pipeline
 from . import host
 
-VERSION='2.3.0'
+VERSION='2.3.1'
 def emit(kind,**fields):print('@LUCY '+json.dumps({'event':kind,**fields},ensure_ascii=False),flush=True)
 def save(path,value):legacy.save_json(path,value)
 
