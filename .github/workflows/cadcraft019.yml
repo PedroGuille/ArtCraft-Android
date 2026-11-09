@@ -37,7 +37,7 @@ jobs:
       - name: Preserve reviewed code before compilation
         id: persist
         run: |
-          git add app engine native-cad flatpak README.md build_flatpak.py release_source.py tools/current_sources.py VALIDACION-2.3.1.md .github/workflows/build-android.yml
+          git add app engine native-cad flatpak README.md build_flatpak.py release_source.py tools/current_sources.py VALIDACION-2.3.1.md
           git diff --cached --check
           if ! git diff --cached --quiet; then
             git commit -m 'Support native CADCraft 0.19.0 builds in Lucy Builder 2.3.1'
