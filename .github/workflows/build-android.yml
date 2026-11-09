@@ -1,11 +1,110 @@
 name: Build Lucy and CADCraft
 on:
   workflow_dispatch:
+  push:
+    branches: [codex/lucy-builder-2026-11-09]
+    paths:
+      - '.github/workflows/build-android.yml'
+      - 'tools/current_sources.py'
+concurrency:
+  group: lucy-current-android
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
-  prepare:
+  build:
     runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      LUCY_BUILD_WORK: ${{ runner.temp }}/lucy-build-work
+      PYTHONUNBUFFERED: '1'
     steps:
-      - name: Check build runner
-        run: echo 'Android build runner is available'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y flatpak
+          git config --global user.name Lucy-Builder
+          git config --global user.email lucy-builder@users.noreply.github.com
+      - name: Prepare current source adapters
+        run: python3 -u tools/current_sources.py prepare
+      - name: Check constructor regressions
+        run: |
+          python3 -m unittest discover -s tests -p 'test_*.py'
+          python3 -m unittest discover -s engine/tests -p 'test_*.py'
+          python3 -m unittest discover -s native-cad/tests -p 'test_*.py'
+          node tests/reading_menu.cjs
+      - name: Compile and verify Android applications
+        run: python3 -u tools/current_sources.py build
+      - name: Package constructor and record source update
+        run: python3 -u tools/current_sources.py package
+      - name: Upload Lucy Builder
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          path: deliverables/Lucy-Builder-2.3.0-x86_64.flatpak
+          archive: false
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload CADCraft
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          path: deliverables/CADCraft-Tablet-0.17.0-arm64-v8a.apk
+          archive: false
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload Lucy without DeckCraft
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          path: deliverables/Lucy-WordCraft-PDFcraft-GridCraft.apk
+          archive: false
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload build records
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: build-records
+          path: |
+            deliverables/SHA256SUMS.txt
+            deliverables/*-build-info.json
+          retention-days: 7
+          if-no-files-found: error
+      - name: Upload source update
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: source-update
+          path: deliverables/constructor-source-update.patch
+          retention-days: 7
+          if-no-files-found: error
+  save-source:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: source-update
+          path: ${{ runner.temp }}/source-update
+      - name: Save reviewed constructor sources on build branch
+        env:
+          PATCH_FILE: ${{ runner.temp }}/source-update/constructor-source-update.patch
+        run: |
+          git apply --index "$PATCH_FILE"
+          python3 - <<'PY'
+          import pathlib, subprocess
+          paths=subprocess.check_output(['git','diff','--cached','--name-only','-z']).decode().split('\0')
+          allowed={'app','engine','native-cad','tests','flatpak'}
+          root={'README.md','build_flatpak.py','release_source.py','VALIDACION-2.3.0.md'}
+          for name in filter(None,paths):
+              p=pathlib.PurePosixPath(name)
+              if (p.parts[0] not in allowed and name not in root) or p.suffix in {'.p12','.pfx','.jks','.keystore','.apk'}:
+                  raise SystemExit('Refusing unexpected source path: '+name)
+          PY
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Update Lucy Builder 2.3.0 adapters for reviewed current applications'
+          git push origin HEAD:refs/heads/codex/lucy-builder-2026-11-09
