@@ -101,8 +101,22 @@ def port_office():
         git(dest,'apply','--index',str(compat/data['engines'][name]['patches']['all']['file']))
         result=git(dest,'apply','--3way','--index',str(overlay),check=False)
         if result.returncode:
-            if name!='gridcraft':raise ValueError(result.stderr)
-            conflicts(dest,'crates/ui-egui/src/theme/font_setup.rs',[lambda a,b:'    font_definitions_impl(crate::i18n::Language::Es, Vec::new(), false)\n'])
+            if name=='gridcraft':
+                conflicts(dest,'crates/ui-egui/src/theme/font_setup.rs',[lambda a,b:'    font_definitions_impl(crate::i18n::Language::Es, Vec::new(), false)\n'])
+            elif name=='deckcraft':
+                pending=git(dest,'diff','--name-only','--diff-filter=U').stdout.splitlines()
+                if set(pending)!={'crates/ui-egui/src/dialogs.rs','crates/ui-egui/src/dialogs/body.rs'}:raise ValueError(result.stderr)
+                for filename in pending:
+                    p=dest/filename;content=p.read_text()
+                    def spanish_dialog(match):
+                        chosen=match[2]
+                        if re.search(r'\b(?:dlg_about|credits_block)\b|super::about|mod about|pub use about|"about"\\s*=>',chosen):
+                            raise ValueError('Obsolete About code in Spanish merge: '+filename)
+                        return chosen
+                    content,count=re.subn(r'^<<<<<<< ours\n(.*?)^=======\n(.*?)^>>>>>>> theirs\n',spanish_dialog,content,flags=re.M|re.S)
+                    if not count:raise ValueError('Unexpected DeckCraft conflict format')
+                    p.write_text(content)
+            else:raise ValueError(result.stderr)
             git(dest,'add','--all')
         if git(dest,'diff','--name-only','--diff-filter=U').stdout.strip():raise ValueError('Spanish conflicts: '+name)
         excludes=[':(exclude)'+p for p in data['engines'][name]['source_prune']]
