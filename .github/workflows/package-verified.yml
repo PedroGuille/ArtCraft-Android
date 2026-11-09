@@ -1,64 +1,12 @@
-name: Package verified Lucy Builder
+name: Check packaging runner
 on:
-  workflow_dispatch:
   push:
     branches: [codex/lucy-builder-2026-11-09]
     paths: ['.github/workflows/package-verified.yml']
 permissions:
-  actions: read
   contents: read
 jobs:
-  bundle:
+  ready:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-      - name: Install packaging tools
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y flatpak librsvg2-common
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          run-id: '42669574408'
-          github-token: ${{ github.token }}
-          name: prepared-source
-          path: ${{ runner.temp }}/prepared-source
-      - name: Restore reviewed sources
-        run: git apply --index "$RUNNER_TEMP/prepared-source/constructor-source-update.patch"
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          run-id: '42669574408'
-          github-token: ${{ github.token }}
-          name: CADCraft-Tablet-0.17.0-arm64-v8a.apk
-          path: deliverables
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          run-id: '42669574408'
-          github-token: ${{ github.token }}
-          name: Lucy-WordCraft-PDFcraft-GridCraft.apk
-          path: deliverables
-      - name: Package constructor and record checksums
-        run: python3 -u tools/current_sources.py package
-      - name: Upload Lucy Builder Flatpak
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          path: deliverables/Lucy-Builder-2.3.0-x86_64.flatpak
-          archive: false
-          retention-days: 7
-          if-no-files-found: error
-      - name: Upload checksums
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          path: deliverables/SHA256SUMS.txt
-          archive: false
-          retention-days: 7
-          if-no-files-found: error
-      - name: Upload completed source update
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: source-update
-          path: deliverables/constructor-source-update.patch
-          retention-days: 7
-          if-no-files-found: error
+      - run: echo 'Packaging runner ready'
