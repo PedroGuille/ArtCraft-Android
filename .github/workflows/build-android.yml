@@ -1,0 +1,11 @@
+name: Build Lucy and CADCraft
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check build runner
+        run: echo 'Android build runner is available'
