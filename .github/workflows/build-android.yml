@@ -1,28 +1,30 @@
 name: Build Lucy and CADCraft
 on:
   workflow_dispatch:
+  push:
+    branches: [codex/lucy-builder-2026-11-09]
+    paths:
+      - '.github/workflows/build-android.yml'
 concurrency:
   group: lucy-current-android
   cancel-in-progress: true
 permissions:
   contents: read
 jobs:
-  build:
+  prepare:
     runs-on: ubuntu-24.04
-    timeout-minutes: 240
-    env:
-      PYTHONUNBUFFERED: '1'
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Install packaging tools
+      - name: Install Flatpak and SVG icon support
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y flatpak
+          sudo apt-get install -y flatpak librsvg2-common
           git config --global user.name Lucy-Builder
           git config --global user.email lucy-builder@users.noreply.github.com
-      - name: Prepare current source adapters
+      - name: Prepare reviewed source adapters
         run: python3 -u tools/current_sources.py prepare
       - name: Check constructor regressions
         run: |
@@ -30,41 +32,106 @@ jobs:
           python3 -m unittest discover -s engine/tests -p 'test_*.py'
           python3 -m unittest discover -s native-cad/tests -p 'test_*.py'
           node tests/reading_menu.cjs
-      - name: Compile and verify Android applications
-        run: python3 -u tools/current_sources.py build
-      - name: Package constructor and record source update
-        run: python3 -u tools/current_sources.py package
-      - name: Upload Lucy Builder
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      - name: Check Flatpak packaging before Android compilation
+        run: python3 build_flatpak.py --output "$RUNNER_TEMP/constructor-smoke"
+      - name: Record reviewed source tree
+        run: python3 tools/current_sources.py record
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          path: deliverables/Lucy-Builder-2.3.0-x86_64.flatpak
-          archive: false
-          if-no-files-found: error
+          name: prepared-source
+          path: deliverables/constructor-source-update.patch
           retention-days: 7
-      - name: Upload CADCraft
+          if-no-files-found: error
+  android:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        product: [cad, lucy]
+    name: Android (${{ matrix.product }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      PYTHONUNBUFFERED: '1'
+      LUCY_BUILD_PRODUCT: ${{ matrix.product }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: prepared-source
+          path: ${{ runner.temp }}/prepared-source
+      - name: Restore reviewed constructor sources
+        run: git apply --index "$RUNNER_TEMP/prepared-source/constructor-source-update.patch"
+      - name: Compile and verify signed APK
+        run: python3 -u tools/current_sources.py build
+      - name: Upload signed CADCraft APK
+        if: always() && matrix.product == 'cad' && hashFiles('deliverables/CADCraft-Tablet-0.17.0-arm64-v8a.apk') != ''
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           path: deliverables/CADCraft-Tablet-0.17.0-arm64-v8a.apk
           archive: false
-          if-no-files-found: error
           retention-days: 7
-      - name: Upload Lucy without DeckCraft
+          if-no-files-found: error
+      - name: Upload signed Lucy APK without DeckCraft
+        if: always() && matrix.product == 'lucy' && hashFiles('deliverables/Lucy-WordCraft-PDFcraft-GridCraft.apk') != ''
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           path: deliverables/Lucy-WordCraft-PDFcraft-GridCraft.apk
           archive: false
-          if-no-files-found: error
           retention-days: 7
-      - name: Upload build records
+          if-no-files-found: error
+      - name: Upload public build record
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: build-records
-          path: |
-            deliverables/SHA256SUMS.txt
-            deliverables/*-build-info.json
+          name: build-record-${{ matrix.product }}
+          path: deliverables/*-build-info.json
           retention-days: 7
           if-no-files-found: error
-      - name: Upload source update
+  package:
+    needs: [prepare, android]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y flatpak librsvg2-common
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: prepared-source
+          path: ${{ runner.temp }}/prepared-source
+      - name: Restore reviewed sources
+        run: git apply --index "$RUNNER_TEMP/prepared-source/constructor-source-update.patch"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: CADCraft-Tablet-0.17.0-arm64-v8a.apk
+          path: deliverables
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: Lucy-WordCraft-PDFcraft-GridCraft.apk
+          path: deliverables
+      - name: Package constructor and record checksums
+        run: python3 -u tools/current_sources.py package
+      - name: Upload Lucy Builder Flatpak
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          path: deliverables/Lucy-Builder-2.3.0-x86_64.flatpak
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
+      - name: Upload checksums
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          path: deliverables/SHA256SUMS.txt
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
+      - name: Upload completed source update
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: source-update
@@ -72,7 +139,7 @@ jobs:
           retention-days: 7
           if-no-files-found: error
   save-source:
-    needs: build
+    needs: package
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -82,7 +149,7 @@ jobs:
         with:
           name: source-update
           path: ${{ runner.temp }}/source-update
-      - name: Save reviewed constructor sources on build branch
+      - name: Save reviewed constructor sources
         env:
           PATCH_FILE: ${{ runner.temp }}/source-update/constructor-source-update.patch
         run: |
@@ -100,5 +167,5 @@ jobs:
           git diff --cached --check
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'Update Lucy Builder 2.3.0 adapters for reviewed current applications'
+          git commit -m 'Update Lucy Builder 2.3.0 for current office and CAD application sources'
           git push origin HEAD:refs/heads/codex/lucy-builder-2026-11-09
