@@ -1,11 +1,6 @@
 name: Build Lucy and CADCraft
 on:
   workflow_dispatch:
-  push:
-    branches: [codex/lucy-builder-2026-11-09]
-    paths:
-      - '.github/workflows/build-android.yml'
-      - 'tools/current_sources.py'
 concurrency:
   group: lucy-current-android
   cancel-in-progress: true
