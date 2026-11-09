@@ -58,4 +58,21 @@ class AdapterTests(unittest.TestCase):
   with patch.object(pipeline,'clone_commit',clone),patch.object(compatibility,'profile',return_value=candidate),self.assertRaises(pipeline.BuildError):
    pipeline.apply_adapter(engine,project,self.root/'sources')
 
+
+ def test_exact_reviewed_adapter_wins_even_when_legacy_merge_is_clean(self):
+  import compatibility
+  engine,project,clone=self.fixture(False)
+  origin=self.root/'origin';code=origin/'integration.rs'
+  code.write_text(code.read_text().replace('line3\n','Lucy current API\n'))
+  reviewed=self.root/'current.patch';reviewed.write_bytes(subprocess.check_output(['git','diff','--binary','HEAD'],cwd=origin))
+  candidate={'path':reviewed,'base_commit':engine['source_commit'],'source_prune':[],'reviewed_at':'2026-11-09'}
+  engine['language_mode']='all'
+  with patch.object(pipeline,'clone_commit',clone),patch.object(compatibility,'profile',return_value=candidate):
+   source=pipeline.apply_adapter(engine,project,self.root/'sources')
+  text=(source/'integration.rs').read_text()
+  self.assertIn('Lucy current API',text)
+  self.assertNotIn('Lucy compact menu',text)
+  self.assertIn('New upstream functionality',text)
+  self.assertEqual(engine['adapter_profile'],'2026-11-09')
+
 if __name__=='__main__':unittest.main()
