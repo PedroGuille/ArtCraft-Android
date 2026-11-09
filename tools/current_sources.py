@@ -110,7 +110,7 @@ def port_office():
                     p=dest/filename;content=p.read_text()
                     def spanish_dialog(match):
                         chosen=match[2]
-                        if re.search(r'\b(?:dlg_about|credits_block)\b|super::about|mod about|pub use about|"about"\\s*=>',chosen):
+                        if re.search(r'\b(?:dlg_about|credits_block)\b|super::about|mod about|pub use about|"about"\s*=>',chosen):
                             raise ValueError('Obsolete About code in Spanish merge: '+filename)
                         return chosen
                     content,count=re.subn(r'^<<<<<<< ours\n(.*?)^=======\n(.*?)^>>>>>>> theirs\n',spanish_dialog,content,flags=re.M|re.S)
@@ -344,8 +344,27 @@ def selected_index(settings):
     lines=[sha(p)+'  '+p.relative_to(kit).as_posix() for p in sorted(kit.rglob('*')) if p.is_file() and not p.is_symlink() and p.name!='CONTENTS.sha256' and not set(p.relative_to(kit).parts)&blocked and p.suffix not in {'.pyc','.p12','.pfx','.jks','.keystore','.apk'}]
     (kit/'CONTENTS.sha256').write_text('\n'.join(lines)+'\n')
 
+
+def current_adapters_ready():
+    """Do not replay the November 6 migration over an already reviewed tree."""
+    try:
+        reviewed=json.loads((ROOT/'app/reviewed.json').read_text())
+        manifest=json.loads((ROOT/'engine/pipeline/compat/manifest.json').read_text())
+        cad=json.loads((ROOT/'native-cad/adapter.json').read_text())
+        return (
+            all(reviewed['heads'].get(name)==commit for name,commit in HEADS.items())
+            and all(manifest['engines'][name]['base_commit']==commit for name,commit in HEADS.items() if name!='cadcraft')
+            and any(p.get('source_commit')==HEADS['cadcraft'] for p in cad['source_profiles'])
+        )
+    except (OSError,ValueError,KeyError,TypeError):
+        return False
+
 def prepare():
     WORK.mkdir(parents=True,exist_ok=True)
+    if current_adapters_ready():
+        run([sys.executable,'-m','compileall','-q','app','engine','native-cad'],ROOT)
+        print('Current reviewed adapters already present; preparation left them unchanged.',flush=True)
+        return
     snapshot=port_office();port_cad();refresh_builder(snapshot)
     (ROOT/'VALIDACION-2.3.0.md').write_text('# Validación 2.3.0\n\nFuentes fijadas el 9 de noviembre de 2026. La compilación y las verificaciones se registran en el workflow de esta entrega.\n')
     run([sys.executable,'-m','compileall','-q','app','engine','native-cad'],ROOT)
@@ -354,7 +373,10 @@ def prepare():
 def build():
     from app import worker
     state=WORK/'compiler';dest=ROOT/'deliverables';dest.mkdir(exist_ok=True)
-    for mode,ids in [('individual',['cadcraft']),('lucy',['wordcraft','pdfcraft','gridcraft']),('individual',['deckcraft'])]:
+    plans={'cad':[('individual',['cadcraft'])],'lucy':[('lucy',['wordcraft','pdfcraft','gridcraft'])],'deck':[('individual',['deckcraft'])]}
+    product=os.environ.get('LUCY_BUILD_PRODUCT','all')
+    selected=plans['cad']+plans['lucy']+plans['deck'] if product=='all' else plans[product]
+    for mode,ids in selected:
         print('BUILD',mode,ids,flush=True)
         worker.run({'mode':mode,'apps':ids,'output':str(WORK/'products'),'jobs':2,'revision_mode':'reviewed','language_mode':'all','accept_sdk_license':True},state)
         if ids==['deckcraft']:continue
@@ -373,22 +395,26 @@ def build():
         name='CADCraft-Tablet-0.17.0-arm64-v8a.apk' if mode=='individual' else 'Lucy-WordCraft-PDFcraft-GridCraft.apk'
         shutil.copyfile(apk,dest/name)
         save(dest/(product+'-build-info.json'),{k:v for k,v in info.items() if k not in {'apk','source','report','output'}})
-    print('Both requested APKs are signed and verified; DeckCraft release build validated separately.',flush=True)
+    print('Selected Android products compiled, signed and verified.',flush=True)
 
 def package():
-    dest=ROOT/'deliverables';run([sys.executable,'build_flatpak.py','--output',dest],ROOT)
+    dest=ROOT/'deliverables';dest.mkdir(exist_ok=True)
     table='\n'.join('| '+n+' | '+h+' |' for n,h in HEADS.items())
     (ROOT/'VALIDACION-2.3.0.md').write_text('# Validación de Lucy Builder 2.3.0\n\n## Fuentes\n\n| App | Commit |\n| --- | --- |\n'+table+'\n\n## Comprobaciones\n\n- Pruebas Python y regresión JavaScript del constructor.\n- Compilaciones release: CADCraft ARM64 nativo y los cuatro motores WebAssembly.\n- APK de Lucy con WordCraft, PDFcraft y GridCraft; se verifica que DeckCraft no esté incluido.\n- PDFcraft incluye su worker OCR, modelos ONNX verificados por SHA-256, licencia y atribuciones.\n- APK de CADCraft con firma verificada y soporte de páginas nativas de 16 KiB.\n- Flatpak creado con las herramientas oficiales.\n\nNo se probaron en un dispositivo físico ni se recompilaron las otras diez aplicaciones del catálogo. Las versiones anteriores siguen disponibles. Cambios posteriores de main pueden necesitar adaptar las fuentes otra vez.\n')
-    # Repack with the completed validation record.
+    # Package the completed validation record.
     run([sys.executable,'build_flatpak.py','--output',dest],ROOT)
     names=['Lucy-Builder-2.3.0-x86_64.flatpak','CADCraft-Tablet-0.17.0-arm64-v8a.apk','Lucy-WordCraft-PDFcraft-GridCraft.apk']
     (dest/'SHA256SUMS.txt').write_text(''.join(sha(dest/n)+'  '+n+'\n' for n in names))
+    record_sources()
+    print('Ready:',names,flush=True)
+
+def record_sources():
+    dest=ROOT/'deliverables';dest.mkdir(exist_ok=True)
     run(['git','add','app','engine','native-cad','tests','flatpak','README.md','build_flatpak.py','release_source.py','VALIDACION-2.3.0.md'],ROOT)
     git(ROOT,'diff','--cached','--check')
     patch=subprocess.check_output(['git','diff','--cached','--binary','HEAD'],cwd=ROOT)
     (dest/'constructor-source-update.patch').write_bytes(patch)
-    print('Ready:',names,flush=True)
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('stage',choices=['prepare','build','package']);args=parser.parse_args()
-    {'prepare':prepare,'build':build,'package':package}[args.stage]()
+    parser=argparse.ArgumentParser();parser.add_argument('stage',choices=['prepare','build','package','record']);args=parser.parse_args()
+    {'prepare':prepare,'build':build,'package':package,'record':record_sources}[args.stage]()
