@@ -10,6 +10,7 @@ ROOT=Path(__file__).resolve().parent
 spec=importlib.util.spec_from_file_location('lucy_pipeline',ROOT/'pipeline/build_lucy.py')
 pipeline=importlib.util.module_from_spec(spec);spec.loader.exec_module(pipeline)
 VERSION='1.0.0'
+import compatibility
 
 class BuildFailure(Exception):pass
 
@@ -75,7 +76,7 @@ def prepare(snapshot,state):
         name=engine['id'];work=state/'work/engines'/name;record=work/'.lucy-owned.json'
         source=work/'sources'/name
         plan_key=key_of({'engine':engine,'fonts':snapshot['engine_lock']['fonts'],'translations':snapshot['engine_lock']['translations'],
-                         'patch':tools.digest(profile/'third_party/patches'/str(name+'.patch')),'pipeline':tools.digest(ROOT/'pipeline/build_lucy.py'),
+                         'compatibility':compatibility.digest(name),'patch':tools.digest(profile/'third_party/patches'/str(name+'.patch')),'pipeline':tools.digest(ROOT/'pipeline/build_lucy.py'),
                          'builder':tools.digest(profile/'scripts/build_engines.py')})
         prior=read_json(record)
         if work.is_symlink():raise BuildFailure('La carpeta de trabajo no puede ser un enlace.')
@@ -175,7 +176,7 @@ def compile_all(snapshot,prepared,state,compiler,jobs):
     for engine in snapshot['engine_lock']['engines']:
         name=engine['id'];work=prepared[name]
         inputs={'engine':engine,'fonts':snapshot['engine_lock']['fonts'],'translations':snapshot['engine_lock']['translations'],
-                'ui_fonts':snapshot['engine_lock']['ui_fonts'],'compiler':compiler,'profile':tools.digest(profile/'third_party/patches'/str(name+'.patch')),
+                'compatibility':compatibility.digest(name),'ui_fonts':snapshot['engine_lock']['ui_fonts'],'compiler':compiler,'profile':tools.digest(profile/'third_party/patches'/str(name+'.patch')),
                 'builder':tools.digest(profile/'scripts/build_engines.py'),'pipeline':tools.digest(ROOT/'pipeline/build_lucy.py')}
         cache_key=key_of(inputs);cache=state/'cache/engines'/name/cache_key
         if cache_valid(cache,cache_key,engine['source_commit']):

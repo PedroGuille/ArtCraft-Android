@@ -10,7 +10,7 @@ def load_module(path,name):
 def build(state,output,job,tools):
  from .worker import emit,sources,product_key
  sdk,java,compiler=tools;source,commit=sources('cadcraft',state,job['revision_mode']);emit('revisions',heads={'cadcraft':commit})
- template=ROOT/'native-cad';digest=bootstrap.digest(template/'adapter.json')
+ template=ROOT/'native-cad';digest=legacy.key_of({name:bootstrap.digest(template/name) for name in ['adapter.json','tablet.py','linux.py']})
  kit=state/'native-cad'/digest
  if not kit.exists():shutil.copytree(template,kit,ignore=shutil.ignore_patterns('__pycache__','.git','cache','work','dist','*.keystore','*.p12','*.jks'))
  tablet=load_module(kit/'tablet.py','cad_tablet');linux=load_module(kit/'linux.py','cad_linux')
@@ -49,5 +49,5 @@ def build(state,output,job,tools):
  if product.is_symlink():raise ValueError('La carpeta CADCraft de salida no puede ser un enlace.')
  product.mkdir(parents=True,exist_ok=True);final=product/(time.strftime('%Y%m%d-%H%M%S')+'-'+uuid.uuid4().hex[:8]);final.mkdir()
  target=final/'CADCraft.apk';shutil.copy2(apk,target);shutil.copy2(result['symbols'],final/'CADCraft-symbols.zip')
- info={'builder':'Lucy Builder 2.1.1','mode':'individual','source_selection':job['revision_mode'],'selection':['cadcraft'],'name':'CADCraft','heads':{'cadcraft':commit},'version_name':result['upstream_version'],'apk':str(target),'output':str(final),'source':str(workspace),'report':str(final/'build-info.json'),'apk_sha256':bootstrap.digest(target),'certificate_sha256':certificate[1],'abi':'arm64-v8a','recipe':'native-tablet','physical_device_tested':False}
+ info={'builder':'Lucy Builder 2.3.1','mode':'individual','source_selection':job['revision_mode'],'selection':['cadcraft'],'name':'CADCraft','heads':{'cadcraft':commit},'version_name':result['upstream_version'],'apk':str(target),'output':str(final),'source':str(workspace),'report':str(final/'build-info.json'),'apk_sha256':bootstrap.digest(target),'certificate_sha256':certificate[1],'abi':'arm64-v8a','recipe':'native-tablet','adapter_version':adapter['adapter_version'],'adapter_profile':report.get('source_profile','legacy'),'physical_device_tested':False}
  legacy.save_json(final/'build-info.json',info);return info

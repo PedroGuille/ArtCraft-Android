@@ -19,7 +19,7 @@ def deck_patch(patch):
   parts=re.split(r'(?=^@@)',section,flags=re.M);header=parts[0]
   keep=[]
   for h in parts[1:]:
-   yes=path in {'Cargo.toml','apps/deckcraft-web/index.html','crates/ui-egui/src/app.rs','crates/ui-egui/src/folio.rs','crates/ui-egui/src/theme.rs','docs/folio-android.md'}
+   yes=path in {'Cargo.lock','crates/ui-egui/Cargo.toml','Cargo.toml','apps/deckcraft-web/index.html','crates/ui-egui/src/app.rs','crates/ui-egui/src/folio.rs','crates/ui-egui/src/theme.rs','docs/folio-android.md'}
    if path.endswith('/lib.rs'):yes='mod folio;' in h
    if path.endswith('/ribbon.rs'):yes='let h = ' in h
    if path.endswith('/backstage.rs'):yes='Page::About' in h or 'use info::' in h
@@ -28,8 +28,19 @@ def deck_patch(patch):
   if keep:selected.append(re.sub(r'^index .*\n','',header,flags=re.M)+''.join(keep))
  patch.write_text(''.join(selected))
 
+
+def deck_fonts(source):
+ p=source/'crates/ui-egui/build.rs';s=p.read_text()
+ if 'folio_fonts.rs' in s:return
+ marker='fn main() {'
+ if marker not in s:raise ValueError('Cambió la preparación de fuentes de DeckCraft')
+ s=s.replace(marker,marker+'\n    if let Err(error) = lucy_ui_fonts() { println!("cargo::error={error}"); }',1)
+ s+='\n// Generate the same pinned UI font input in both language profiles.\nfn lucy_ui_fonts() -> Result<(), Box<dyn std::error::Error>> {\n    println!("cargo::rerun-if-env-changed=FOLIO_UI_FONT_DIR");\n    let mut text = String::from("const FOLIO_UI_FONTS: &[(&str, &[u8])] = &[\\n");\n    if let Some(dir) = std::env::var_os("FOLIO_UI_FONT_DIR") {\n        for (name, file) in [("FolioInter", "Inter-Regular.ttf"), ("FolioInterSemiBold", "Inter-SemiBold.ttf")] {\n            let path = std::path::PathBuf::from(&dir).join(file).canonicalize()?;\n            println!("cargo::rerun-if-changed={}", path.display());\n            text.push_str(&format!("({name:?}, include_bytes!({path:?})),\\n"));\n        }\n    }\n    text.push_str("];\\n");\n    let out = std::path::PathBuf::from(std::env::var("OUT_DIR")?);\n    std::fs::write(out.join("folio_fonts.rs"), text)?;\n    Ok(())\n}\n'
+ p.write_text(s)
+
 def restore(source,name):
  if name=='deckcraft':
+  deck_fonts(source)
   # The original DeckCraft UI is English. Its Spanish fork remains a separate
   # selectable profile; never advertise languages the upstream app lacks.
   p=source/'crates/ui-egui/src/backstage.rs';s=p.read_text()

@@ -1,0 +1,2 @@
+# Unified diffs are data; their context-only lines intentionally contain a space.
+*.patch -whitespace

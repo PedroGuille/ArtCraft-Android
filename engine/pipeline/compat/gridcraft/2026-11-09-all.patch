@@ -1,0 +1,750 @@
+diff --git a/ATTRIBUTION.md b/ATTRIBUTION.md
+index 2a4b5c9..5c729e3 100644
+--- a/ATTRIBUTION.md
++++ b/ATTRIBUTION.md
+@@ -48,3 +48,12 @@ Generated-in-code art is original and has no file to list: the UI icon set (`cra
+ | `docs/images/page-break.png` | GridCraft contributors | screenshot of GridCraft rendered offscreen (`crates/ui-egui/examples/snapshot.rs`) showing an original sample workbook | MIT OR Apache-2.0 | README screenshot; no third-party content |
+ | Core 14 AFM metric numbers in `crates/pdf/src/symbol.rs` (Symbol: character codes and advance widths) and `crates/pdf/src/metrics.rs` (Helvetica, Times and Courier advance widths); no font file | Adobe Systems Incorporated | Adobe's Core 14 AFM font metrics files (`Symbol.afm` 001.008 and the Helvetica, Times and Courier AFMs) | Adobe's Core 14 metrics notice: the files may be used, copied and distributed for any purpose and without charge, provided the notice is kept (quoted in `crates/pdf/src/metrics.rs`) | Numbers only, typed in from the public metrics. PDF export embeds no font: Symbol and the Times faces are base-14 fonts every PDF reader supplies, and text outside WinAnsiEncoding is set in a predefined, non-embedded Adobe-GB1 CID font |
+ | Unicode values of the Symbol encoding in `crates/pdf/src/symbol.rs` (the code-to-character map; numbers only, no file copied) | Unicode, Inc. | `symbol.txt`, "Adobe Symbol Encoding to Unicode", table version 1.0 (2011-07-12), at unicode.org/Public/MAPPINGS/VENDORS/ADOBE/ | Unicode, Inc.'s notice in the file: "Unicode, Inc. hereby grants the right to freely use the information supplied in this file in the creation of products supporting the Unicode Standard, and to make copies of this file in any form for internal or external distribution as long as this notice remains attached." The file is provided as-is, without warranties | Separate from Adobe's Core 14 notice (previous row), which covers the character codes and widths; the Unicode values come from this table |
++
++## Folio Android interface font
++
++Inter Regular and SemiBold by Rasmus Andersson, OFL-1.1, are an optional build input from the pinned WordCraft source in Folio `engine-lock.json` (`ui_fonts`). No font files are committed to this fork. Folio verifies each SHA-256 before compilation and retains `OFL-Inter.txt` in its notices. Used only for the interface; document fonts are unchanged.
++
++| Build input | Author | Pinned source | Licence | SHA-256 |
++|---|---|---|---|---|
++| `FOLIO_UI_FONT_DIR/Inter-Regular.ttf` | Rasmus Andersson | https://github.com/storytold/wordcraft/blob/9130181a5fdaee2293e67756fd5458c601489f3c/assets/fonts/Inter-Regular.ttf | OFL-1.1 (`OFL-Inter.txt`, supplied by Folio) | `40d692fce188e4471e2b3cba937be967878f631ad3ebbbdcd587687c7ebe0c82` |
++| `FOLIO_UI_FONT_DIR/Inter-SemiBold.ttf` | Rasmus Andersson | https://github.com/storytold/wordcraft/blob/9130181a5fdaee2293e67756fd5458c601489f3c/assets/fonts/Inter-SemiBold.ttf | OFL-1.1 (`OFL-Inter.txt`, supplied by Folio) | `78a843fade9d4612a5567302fb595b56976eb5fcebf4fea5a5912d638bafcde3` |
+diff --git a/Cargo.lock b/Cargo.lock
+index 543cddf..b39b3b4 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -2191,6 +2191,7 @@ dependencies = [
+  "gridcraft-engine",
+  "gridcraft-xlsx",
+  "image",
++ "js-sys",
+  "log",
+  "serde",
+  "serde_json",
+diff --git a/Cargo.toml b/Cargo.toml
+index 1941c9d..05632e4 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -93,8 +93,8 @@ debug = "line-tables-only"
+ 
+ [profile.release]
+ opt-level = 3
+-lto = "thin"
+-codegen-units = 16
++lto = false
++codegen-units = 1
+ debug = 0
+ 
+ # Keep the complete egui family and native event bridge on reviewed fork commits.
+diff --git a/apps/gridcraft-web/index.html b/apps/gridcraft-web/index.html
+index 321aa30..dee18c2 100644
+--- a/apps/gridcraft-web/index.html
++++ b/apps/gridcraft-web/index.html
+@@ -1,5 +1,5 @@
+ <!DOCTYPE html>
+-<html lang="en">
++<html lang="es">
+ <head>
+   <meta charset="utf-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1">
+@@ -15,6 +15,6 @@
+ </head>
+ <body>
+   <canvas id="gridcraft_canvas"></canvas>
+-  <div id="gridcraft_loading">Loading GridCraft&hellip;</div>
++  <div id="gridcraft_loading">Cargando GridCraft&hellip;</div>
+ </body>
+ </html>
+diff --git a/apps/gridcraft-web/src/web.rs b/apps/gridcraft-web/src/web.rs
+index 1108c4c..2439c70 100644
+--- a/apps/gridcraft-web/src/web.rs
++++ b/apps/gridcraft-web/src/web.rs
+@@ -75,17 +75,8 @@ pub fn start() {
+                             _ => {}
+                         }
+                     }
+-                    // Follow the browser's language, except a CJK one. CJK coverage comes from
+-                    // optional craft-fonts input, not a guaranteed web font set, so a CJK browser
+-                    // cannot be assumed to render localized labels without tofu. Users can still
+-                    // choose a language explicitly.
+-                    let browser = gridcraft_ui_egui::i18n::Language::system();
+-                    if !matches!(
+-                        browser,
+-                        gridcraft_ui_egui::i18n::Language::Zh | gridcraft_ui_egui::i18n::Language::Ja | gridcraft_ui_egui::i18n::Language::Ko
+-                    ) {
+-                        app.ui.language = browser;
+-                    }
++                    app.ui.language = gridcraft_ui_egui::i18n::Language::Es;
++                    app.chrome.title_bar = false;
+                     // Preferences from an earlier visit (#1562), as the desktop app reads `ui.json`
+                     // and `prefs.json`; a saved language replaces the browser's.
+                     let (stored_ui, stored_prefs) = (stored(crate::prefs::UI_KEY), stored(crate::prefs::PREFS_KEY));
+diff --git a/crates/ui-egui/Cargo.toml b/crates/ui-egui/Cargo.toml
+index 3ecbbbb..8ce33fe 100644
+--- a/crates/ui-egui/Cargo.toml
++++ b/crates/ui-egui/Cargo.toml
+@@ -45,6 +45,7 @@ sys-locale = { workspace = true }
+ craft-window = { workspace = true }
+ 
+ [target.'cfg(target_arch = "wasm32")'.dependencies]
++js-sys = "0.3"
+ # Read the browser's preferred language for the first-run web interface language.
+ web-sys = { version = "0.3", features = ["Window", "Navigator", "Performance"] }
+ 
+diff --git a/crates/ui-egui/build.rs b/crates/ui-egui/build.rs
+index 0c5dbf3..fa350e2 100644
+--- a/crates/ui-egui/build.rs
++++ b/crates/ui-egui/build.rs
+@@ -9,28 +9,15 @@
+ 
+ use std::fmt::Write as _;
+ 
+-use serde_json::Value;
+-
+ #[path = "src/craft_fonts_policy.rs"]
+ mod craft_fonts_policy;
+ 
+ /// Build script: reads the contributor JSON/TOML and writes generated `credits.rs`, then emits `craft_fonts.rs`; missing or malformed optional inputs warn, while required mode reports build errors.
+ fn main() {
+-    // Read when the script runs: `env!` would keep the path from when the script was compiled,
+-    // which goes stale if the checkout moves (and a missing file reruns the script every build).
+-    let manifest = std::env::var_os("CARGO_MANIFEST_DIR").map(std::path::PathBuf::from).unwrap_or_default();
+-    let dir = manifest.join("../../contributors");
+-    let json = read(&dir.join("contributors.json"), "the About window shows no contributors", |t| {
+-        serde_json::from_str::<Value>(t).map_err(|e| e.to_string())
+-    })
+-    .unwrap_or(Value::Null);
+-    let people = read(&dir.join("people.toml"), "contributors are shown by username only", |t| t.parse::<toml::Table>().map_err(|e| e.to_string()))
+-        .unwrap_or_default();
+-    let out = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap_or_default()).join("credits.rs");
+-    if let Err(e) = std::fs::write(&out, generate(&json, &people)) {
+-        println!("cargo::warning=writing {}: {e}", out.display());
+-    }
+     emit_craft_fonts();
++    if let Err(e) = emit_folio_fonts() {
++        println!("cargo::error=interface fonts: {e}");
++    }
+ }
+ 
+ /// The optional craft-fonts build input (<https://github.com/storytold/craft-fonts>, recipe from
+@@ -133,80 +120,21 @@ fn chinese_font_rows(dir: &std::path::Path, required: bool) -> Result<Vec<craft_
+     }
+ }
+ 
+-fn read<T>(path: &std::path::Path, fallback: &str, parse: impl Fn(&str) -> Result<T, String>) -> Option<T> {
+-    println!("cargo::rerun-if-changed={}", path.display());
+-    let r = std::fs::read_to_string(path).map_err(|e| e.to_string()).and_then(|t| parse(&t));
+-    if let Err(e) = &r {
+-        println!("cargo::warning={}: {e}; {fallback}", path.display());
+-    }
+-    r.ok()
+-}
+-
+ /// A non-empty string field of someone's people.toml entry, as a Rust `Option<&str>` literal.
+-fn name(v: Option<&str>) -> String {
+-    match v.map(str::trim).filter(|s| !s.is_empty()) {
+-        Some(x) => format!("Some({x:?})"),
+-        None => "None".into(),
+-    }
+-}
+-
+-fn s(v: &Value, k: &str) -> String {
+-    format!("{:?}", v.get(k).and_then(Value::as_str).unwrap_or(""))
+-}
+-
+-fn n(v: &Value, k: &str) -> u64 {
+-    v.get(k).and_then(Value::as_u64).unwrap_or(0)
+-}
+-
+-fn rows(json: &Value, k: &str) -> Vec<Value> {
+-    json.get(k).and_then(Value::as_array).cloned().unwrap_or_default()
+-}
+-
+-fn generate(json: &Value, people: &toml::Table) -> String {
+-    let mut o = String::new();
+-    let _ = writeln!(o, "pub static TOTAL_COMMITS: u64 = {};", n(json, "commits"));
+-    let _ = writeln!(o, "pub static CONTRIBUTORS: &[Contributor] = &[");
+-    for c in rows(json, "contributors") {
+-        let login = c.get("login").and_then(Value::as_str).unwrap_or("");
+-        if login.is_empty() {
+-            continue;
++use std::{env, fs, path::PathBuf};
++fn emit_folio_fonts() -> Result<(), Box<dyn std::error::Error>> {
++    println!("cargo::rerun-if-env-changed=FOLIO_UI_FONT_DIR");
++    let mut text = String::from("const FOLIO_UI_FONTS: &[(&str, &[u8])] = &[\n");
++    if let Some(dir) = env::var_os("FOLIO_UI_FONT_DIR") {
++        let dir = PathBuf::from(dir);
++        for (name, file) in [("FolioInter", "Inter-Regular.ttf"), ("FolioInterSemiBold", "Inter-SemiBold.ttf")] {
++            let path = dir.join(file).canonicalize()?;
++            println!("cargo::rerun-if-changed={}", path.display());
++            text.push_str(&format!("({name:?}, include_bytes!({:?})),\n", path));
+         }
+-        // Names only from a verified, self-chosen people.toml entry.
+-        let entry = people.get("people").and_then(|p| p.get(login)).filter(|_| c.get("people_entry").and_then(Value::as_bool) == Some(true));
+-        let field = |k: &str| entry.and_then(|e| e.get(k)).and_then(toml::Value::as_str);
+-        let synced = entry.and_then(|e| e.get("sync_github_name")).and_then(toml::Value::as_bool) == Some(true);
+-        let display = field("display_name")
+-            .filter(|s| !s.trim().is_empty())
+-            .or_else(|| if synced { c.get("github_name").and_then(Value::as_str) } else { None });
+-        let _ = writeln!(
+-            o,
+-            "    Contributor {{ login: {login:?}, display_name: {}, real_name: {}, prs: {}, commits: {}, lines_added: {}, lines_deleted: {}, binary_added: {}, binary_deleted: {}, first_commit: {}, last_commit: {} }},",
+-            name(display),
+-            name(field("real_name")),
+-            n(&c, "prs"),
+-            n(&c, "commits"),
+-            n(&c, "lines_added"),
+-            n(&c, "lines_deleted"),
+-            n(&c, "binary_added"),
+-            n(&c, "binary_deleted"),
+-            s(&c, "first_commit"),
+-            s(&c, "last_commit"),
+-        );
+-    }
+-    let _ = writeln!(o, "];");
+-    let _ = writeln!(o, "pub static MODELS: &[Model] = &[");
+-    for m in rows(json, "models") {
+-        let _ = writeln!(
+-            o,
+-            "    Model {{ company: {}, model: {}, version: {}, commits: {}, lines_added: {}, lines_deleted: {} }},",
+-            s(&m, "company"),
+-            s(&m, "model"),
+-            s(&m, "version"),
+-            n(&m, "commits"),
+-            n(&m, "lines_added"),
+-            n(&m, "lines_deleted"),
+-        );
+     }
+-    let _ = writeln!(o, "];");
+-    o
++    text.push_str("];\n");
++    let out = PathBuf::from(env::var("OUT_DIR")?);
++    fs::write(out.join("folio_fonts.rs"), text)?;
++    Ok(())
+ }
+diff --git a/crates/ui-egui/src/app.rs b/crates/ui-egui/src/app.rs
+index 94b6b01..93c48c2 100644
+--- a/crates/ui-egui/src/app.rs
++++ b/crates/ui-egui/src/app.rs
+@@ -94,7 +94,7 @@ impl SheetApp {
+     /// [`logic`]: SheetApp::logic
+     pub fn setup_context(ctx: &egui::Context, dark: bool) {
+         crate::fonts::start_scan();
+-        Self::setup_context_for_language(ctx, dark, i18n::Language::En);
++        Self::setup_context_for_language(ctx, dark, i18n::Language::Es);
+     }
+ 
+     /// Sets up fonts and visuals for a specific persisted interface language.
+@@ -105,6 +105,10 @@ impl SheetApp {
+ 
+     /// Per-frame logic (control channel, screenshots). Call before `ui`.
+     pub fn logic(&mut self, ctx: &egui::Context) {
++        if let Some(dark) = crate::folio::dark() {
++            self.ui.dark = dark;
++            self.ui.system_theme = false;
++        }
+         self.ensure_text_width(ctx);
+         // A keytip control request lives one frame: the ribbon consumes it during `ui`, and
+         // anything that never reached a control (collapsed ribbon, tab switch) is dropped. One
+diff --git a/crates/ui-egui/src/backstage.rs b/crates/ui-egui/src/backstage.rs
+index 194533d..60388b5 100644
+--- a/crates/ui-egui/src/backstage.rs
++++ b/crates/ui-egui/src/backstage.rs
+@@ -42,11 +42,10 @@ pub enum Page {
+     Print,
+     Export,
+     Options,
+-    Account,
+ }
+ 
+ impl Page {
+-    pub const ALL: [Page; 9] = [Page::Home, Page::New, Page::Open, Page::Info, Page::SaveAs, Page::Print, Page::Export, Page::Options, Page::Account];
++    pub const ALL: [Page; 8] = [Page::Home, Page::New, Page::Open, Page::Info, Page::SaveAs, Page::Print, Page::Export, Page::Options];
+ 
+     /// The id `ui.backstage` and `ui.dialog {"name": "backstage", "page": …}` take.
+     pub fn id(self) -> &'static str {
+@@ -59,7 +58,6 @@ impl Page {
+             Page::Print => "print",
+             Page::Export => "export",
+             Page::Options => "options",
+-            Page::Account => "account",
+         }
+     }
+ 
+@@ -79,7 +77,6 @@ impl Page {
+             Page::Print => "Print",
+             Page::Export => "Export",
+             Page::Options => "Options",
+-            Page::Account => "Account",
+         }
+     }
+ 
+@@ -93,7 +90,6 @@ impl Page {
+             Page::Print => Icon::Print,
+             Page::Export => Icon::Share,
+             Page::Options => Icon::Settings,
+-            Page::Account => Icon::Info,
+         }
+     }
+ }
+@@ -205,7 +201,7 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
+             }
+             // Bottom up: Account sits just above Options, as in Excel.
+             ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+-                for page in [Page::Options, Page::Account] {
++                for page in [Page::Options] {
+                     if nav_item(ui, page.icon(), lang.tr(page.label()), bs.page == page, nav_text, nav_sel).clicked() {
+                         out.page = Some(page);
+                     }
+@@ -227,7 +223,6 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
+                     Page::Print => print(app, ui, &mut bs, &mut out),
+                     Page::Export => export(app, ui, &mut out),
+                     Page::Options => options(app, ui),
+-                    Page::Account => account(app, ui),
+                 }
+             });
+         });
+@@ -794,34 +789,6 @@ pub fn export_as(app: &mut SheetApp, fmt: &str) -> bool {
+ }
+ 
+ /// Excel's File › Account: product information and the About window.
+-fn account(app: &mut SheetApp, ui: &mut Ui) {
+-    let t = Tokens::get(ui.ctx());
+-    let lang = app.ui.language;
+-    section(ui, lang, "Product Information");
+-    ui.label(RichText::new("GridCraft").font(theme::ui_bold(16.0)).color(t.text));
+-    ui.add_space(8.0);
+-    egui::Grid::new("backstage_account").num_columns(2).spacing(vec2(18.0, 8.0)).show(ui, |ui| {
+-        for (label, value) in
+-            [("Version", env!("CARGO_PKG_VERSION").to_string()), ("Platform", platform()), ("Licence", env!("CARGO_PKG_LICENSE").to_string())]
+-        {
+-            ui.label(RichText::new(lang.tr(label)).color(t.text_dim));
+-            ui.label(value);
+-            ui.end_row();
+-        }
+-    });
+-    ui.add_space(18.0);
+-    ui.horizontal(|ui| {
+-        if square_button(ui, Icon::Info, lang.tr("About GridCraft")).clicked() {
+-            app.open_dialog("about", json!({}));
+-        }
+-        ui.add_space(12.0);
+-        ui.vertical(|ui| {
+-            ui.add_space(14.0);
+-            ui.label(RichText::new(lang.tr("About GridCraft")).font(theme::ui_bold(13.5)).color(t.text));
+-            dim(ui, lang.tr("Version, contributors and the AI models that helped"));
+-        });
+-    });
+-}
+ 
+ #[cfg(test)]
+ mod tests {
+@@ -854,9 +821,9 @@ mod tests {
+             (f64::NEG_INFINITY, "Just now"),
+             (f64::INFINITY, "Just now"),
+         ] {
+-            assert_eq!(age(Language::En, seconds), words, "{seconds}");
++            assert_eq!(age(Language::Es, seconds), words, "{seconds}");
+         }
+-        assert!(age(Language::En, f64::MAX).ends_with(" years ago"));
++        assert!(age(Language::Es, f64::MAX).ends_with(" years ago"));
+         // Other languages put the count where their own words want it.
+         for lang in Language::ALL {
+             assert!(age(lang, 3.0 * DAY).contains('3'), "{lang:?}: {}", age(lang, 3.0 * DAY));
+diff --git a/crates/ui-egui/src/dialogs.rs b/crates/ui-egui/src/dialogs.rs
+index 47b2153..9b4ce33 100644
+--- a/crates/ui-egui/src/dialogs.rs
++++ b/crates/ui-egui/src/dialogs.rs
+@@ -13,7 +13,6 @@ use serde_json::{Map, Value as Json, json};
+ use crate::SheetApp;
+ use crate::theme;
+ 
+-mod about;
+ mod analysis;
+ mod charts;
+ mod command_search;
+@@ -1008,14 +1007,7 @@ impl Dialog {
+             "manageRules" => Dialog::custom("manageRules", "Conditional Formatting Rules Manager", json!({})),
+             "commandSearch" => Dialog::custom("commandSearch", "Search Commands", json!({})),
+             "agents" => Dialog::custom("agents", "Agent Control", json!({})),
+-            "about" => {
+-                let mut d = Dialog::custom("about", "About GridCraft", json!({}));
+-                d.tab = match p("tab").as_str() {
+-                    Some(t @ ("Contributors" | "Models")) => t.to_string(),
+-                    _ => "About".into(),
+-                };
+-                d
+-            }
++
+             "recommendedCharts" => {
+                 // Insert › Recommended Charts: chart types for the selected data, with previews.
+                 let recs = match app.session.run("insert.chartRecommendations", json!({})) {
+diff --git a/crates/ui-egui/src/dialogs/show.rs b/crates/ui-egui/src/dialogs/show.rs
+index e4cd5bb..f5d16da 100644
+--- a/crates/ui-egui/src/dialogs/show.rs
++++ b/crates/ui-egui/src/dialogs/show.rs
+@@ -1,4 +1,3 @@
+-use super::about::about;
+ use super::analysis::{analysis_toolpak, cancel_solver_options, goal_seek, in_solver_options, solver, solver_results};
+ use super::charts::{recommended_charts, select_data};
+ use super::command_search::command_search;
+@@ -148,7 +147,6 @@ pub fn show(app: &mut SheetApp, ctx: &egui::Context) {
+     let mut confirm = false;
+     let width = match d.name.as_str() {
+         "formatCells" => 560.0,
+-        "about" => 820.0,
+         "insertFunction" | "commandSearch" | "nameManager" | "manageRules" | "journal" | "agents" | "equation" => 520.0,
+         "macros" => 480.0,
+         "recommendedCharts" => 600.0,
+@@ -214,7 +212,7 @@ pub fn show(app: &mut SheetApp, ctx: &egui::Context) {
+                     ui.add_space(4.0);
+                     ui.label(format!("{} engine commands are available. See docs/mcp.md and docs/control-protocol.md.", gridcraft_engine::command_specs().len()));
+                 }
+-                "about" => about(ui, &mut d),
++
+                 "journal" => {
+                     egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                         for (id, p) in app.session.journal.iter().rev().take(500) {
+diff --git a/crates/ui-egui/src/folio.rs b/crates/ui-egui/src/folio.rs
+new file mode 100644
+index 0000000..8d20876
+--- /dev/null
++++ b/crates/ui-egui/src/folio.rs
+@@ -0,0 +1,40 @@
++//! Folio Android display preference. This never changes the document model.
++#[cfg(target_arch = "wasm32")]
++pub fn dark() -> Option<bool> {
++    js_sys::Reflect::get(&js_sys::global(), &"__folioDark".into()).ok().and_then(|v| v.as_bool())
++}
++#[cfg(not(target_arch = "wasm32"))]
++pub fn dark() -> Option<bool> {
++    None
++}
++
++/// Remap neutral screen paints while preserving coloured content and alpha.
++pub fn color(c: egui::Color32, dark: bool) -> egui::Color32 {
++    if !dark {
++        return c;
++    }
++    let [r, g, b, a] = c.to_srgba_unmultiplied();
++    if r.max(g).max(b).saturating_sub(r.min(g).min(b)) > 20 {
++        return c;
++    }
++    let map = |v: u8| (255u16.saturating_sub(u16::from(v) * 204 / 255)) as u8;
++    egui::Color32::from_rgba_unmultiplied(map(r), map(g), map(b), a)
++}
++
++include!(concat!(env!("OUT_DIR"), "/folio_fonts.rs"));
++
++/// Replace interface families only. Cell and document font families retain their own data.
++pub fn install_ui_fonts(fonts: &mut egui::FontDefinitions, regular: &str, bold: &str) {
++    if FOLIO_UI_FONTS.is_empty() {
++        return;
++    }
++    for (name, bytes) in FOLIO_UI_FONTS {
++        fonts.font_data.insert((*name).into(), std::sync::Arc::new(egui::FontData::from_static(bytes)));
++    }
++    let mut fallback = fonts.families.get(&egui::FontFamily::Proportional).cloned().unwrap_or_default();
++    fallback.insert(0, "FolioInter".into());
++    fonts.families.insert(egui::FontFamily::Proportional, fallback.clone());
++    fonts.families.insert(egui::FontFamily::Name(regular.into()), fallback.clone());
++    fallback.insert(0, "FolioInterSemiBold".into());
++    fonts.families.insert(egui::FontFamily::Name(bold.into()), fallback);
++}
+diff --git a/crates/ui-egui/src/formula_locale.rs b/crates/ui-egui/src/formula_locale.rs
+index d53c5fa..fe1e121 100644
+--- a/crates/ui-egui/src/formula_locale.rs
++++ b/crates/ui-egui/src/formula_locale.rs
+@@ -166,8 +166,8 @@ mod tests {
+         // An argument list Spanish covers only in part stays English instead of mixing (the name
+         // is whatever the Spanish formula table calls SUMIFS).
+         let sumifs = sig("SUMIFS", Es, Language::Es);
+-        assert!(sumifs.ends_with("(sum_range; criteria_range1; criteria1; ...)"), "{sumifs}");
+-        assert_eq!(description("SUMIFS", Es, Language::Es).as_deref(), Some("Adds the cells that meet every condition."));
+-        assert_eq!(sig("IF", En, Language::En), "IF(logical_test, [value_if_true], [value_if_false])");
++        assert!(sumifs.ends_with("(rango_suma; rango_criterios1; criterio1; ...)"), "{sumifs}");
++        assert_eq!(description("SUMIFS", Es, Language::Es).as_deref(), Some("Suma las celdas que cumplen todas las condiciones."));
++        assert_eq!(sig("IF", En, Language::Es), "IF(prueba_lógica, [valor_si_verdadero], [valor_si_falso])");
+     }
+ }
+diff --git a/crates/ui-egui/src/grid/cell_paint.rs b/crates/ui-egui/src/grid/cell_paint.rs
+index ee03f27..cc5aa38 100644
+--- a/crates/ui-egui/src/grid/cell_paint.rs
++++ b/crates/ui-egui/src/grid/cell_paint.rs
+@@ -12,11 +12,11 @@ pub(super) struct Look {
+ }
+ 
+ pub(super) fn col32(c: Color, wb: &Workbook, default: Color32) -> Color32 {
+-    c.resolve(&wb.theme).map(theme::color32).unwrap_or(default)
++    c.resolve(&wb.theme).map(theme::color32).unwrap_or_else(|| crate::folio::color(default, crate::folio::dark() == Some(true)))
+ }
+ 
+ pub(super) fn numfmt_color(c: gridcraft_engine::numfmt::FormatColor) -> Color32 {
+-    c.rgb().map(|[r, g, b]| Color32::from_rgb(r, g, b)).unwrap_or(Color32::BLACK)
++    theme::color32(c.rgb().unwrap_or([0, 0, 0]))
+ }
+ 
+ /// Last column of a Center Across Selection run starting at `start`: it extends over following columns (up to `limit`) while `continues` holds.
+@@ -80,11 +80,11 @@ pub(super) fn look(wb: &Workbook, si: usize, sh: &Sheet, c: CellRef, cf: &mut Cf
+             // Patterns: approximate with a blend of foreground and background.
+             let fg = style.fill.fg.resolve(&wb.theme).unwrap_or([0, 0, 0]);
+             let bg = style.fill.bg.resolve(&wb.theme).unwrap_or([255, 255, 255]);
+-            Some(Color32::from_rgb(
++            Some(theme::color32([
+                 ((fg[0] as u16 + bg[0] as u16 * 3) / 4) as u8,
+                 ((fg[1] as u16 + bg[1] as u16 * 3) / 4) as u8,
+                 ((fg[2] as u16 + bg[2] as u16 * 3) / 4) as u8,
+-            ))
++            ]))
+         }
+     };
+     if let Some(l) = &cfl
+diff --git a/crates/ui-egui/src/lib.rs b/crates/ui-egui/src/lib.rs
+index f2bcf3c..80990b9 100644
+--- a/crates/ui-egui/src/lib.rs
++++ b/crates/ui-egui/src/lib.rs
+@@ -23,7 +23,6 @@ pub mod code_editor;
+ pub mod control;
+ pub mod control_ui;
+ mod craft_fonts_policy;
+-pub mod credits;
+ pub mod dialogs;
+ pub mod dnd;
+ #[cfg(not(target_arch = "wasm32"))]
+@@ -31,6 +30,7 @@ pub mod doc_windows;
+ pub mod editor;
+ pub mod equation;
+ mod floating_pictures;
++mod folio;
+ pub mod fonts;
+ pub mod form_controls;
+ pub mod formula_bar;
+@@ -159,7 +159,7 @@ impl Default for UiState {
+             recent: vec![],
+             keytip_invoke: None,
+             keytip_invoke_next: None,
+-            language: i18n::Language::En,
++            language: i18n::Language::Es,
+             interface_scale: 100,
+         }
+     }
+diff --git a/crates/ui-egui/src/paper_view.rs b/crates/ui-egui/src/paper_view.rs
+index 9db376f..3b174c5 100644
+--- a/crates/ui-egui/src/paper_view.rs
++++ b/crates/ui-egui/src/paper_view.rs
+@@ -55,8 +55,8 @@ pub struct HfEdit {
+ }
+ 
+ /// Rulers measure in inches for English, centimetres otherwise.
+-fn metric(app: &SheetApp) -> bool {
+-    !matches!(app.ui.language, crate::i18n::Language::En)
++fn metric(_app: &SheetApp) -> bool {
++    true
+ }
+ 
+ fn cache_key(app: &SheetApp, wb: &Workbook, si: usize) -> Option<(u64, u64, usize, usize)> {
+@@ -514,8 +514,8 @@ fn editor(app: &mut SheetApp, ui: &mut egui::Ui, geo: &Geo, pg: &PageGrid) {
+             .id(id)
+             .frame(egui::Frame::NONE)
+             .font(font)
+-            .text_color(Color32::BLACK)
+-            .background_color(Color32::WHITE)
++            .text_color(crate::theme::Tokens::get(ui.ctx()).cell_text)
++            .background_color(crate::theme::Tokens::get(ui.ctx()).grid_bg)
+             .align(align)
+             .desired_width(r.width() - 6.0)
+             .desired_rows(1)
+diff --git a/crates/ui-egui/src/ribbon.rs b/crates/ui-egui/src/ribbon.rs
+index 47f1eab..573a73c 100644
+--- a/crates/ui-egui/src/ribbon.rs
++++ b/crates/ui-egui/src/ribbon.rs
+@@ -49,7 +49,7 @@ const _: () = assert!(TITLE_CONTROL_H < TITLE_BAR_H, "title-bar controls keep a
+ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
+     let t = Tokens::get(ui.ctx());
+     let collapsed = app.ui.ribbon_collapsed;
+-    let h = if collapsed { 34.0 } else { 34.0 + 92.0 };
++    let h = if collapsed { 24.0 } else { 24.0 + 92.0 };
+     // A contextual tab exists only while its object is selected (Excel hides Table Design once the
+     // cell leaves the table); a remembered one that is gone would draw an empty ribbon.
+     if CONTEXTUAL_TABS.contains(&app.ui.ribbon_tab.as_str()) && !contextual_tabs(app).contains(&app.ui.ribbon_tab.as_str()) {
+@@ -60,7 +60,7 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
+         .frame(egui::Frame::NONE.fill(t.window).inner_margin(egui::Margin { left: 10, right: 10, top: 0, bottom: 6 }))
+         .show(ui, |ui| {
+             // Tabs row.
+-            let tabs_rect = Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), 32.0));
++            let tabs_rect = Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), 24.0));
+             ui.scope_builder(egui::UiBuilder::new().max_rect(tabs_rect), |ui| {
+                 ui.horizontal(|ui| {
+                     ui.spacing_mut().item_spacing.x = 2.0;
+@@ -74,10 +74,10 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
+                     for tab in tabs {
+                         let active = app.ui.ribbon_tab == tab;
+                         let contextual = ctx_tabs.contains(&tab);
+-                        let font = theme::ui_font(13.5);
++                        let font = theme::ui_font(12.5);
+                         let label = app.ui.language.tr(tab);
+                         let tw = ui.painter().layout_no_wrap(label.to_string(), font.clone(), t.text).size().x;
+-                        let (r, resp) = ui.allocate_exact_size(vec2(tw + 22.0, 30.0), Sense::click());
++                        let (r, resp) = ui.allocate_exact_size(vec2(tw + 22.0, 24.0), Sense::click());
+                         if resp.hovered() && !active {
+                             ui.painter().rect_filled(r.shrink2(vec2(2.0, 4.0)), 5.0, t.hover);
+                         }
+@@ -88,7 +88,7 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
+                         } else {
+                             t.text_dim
+                         };
+-                        ui.painter().text(r.center(), Align2::CENTER_CENTER, label, if active { theme::ui_bold(13.5) } else { font }, color);
++                        ui.painter().text(r.center(), Align2::CENTER_CENTER, label, if active { theme::ui_font(12.5) } else { font }, color);
+                         if active {
+                             let ul = Rect::from_center_size(pos2(r.center().x, r.bottom() - 3.0), vec2(tw.clamp(20.0, 40.0), 3.0));
+                             ui.painter().rect_filled(ul, 1.5, t.accent);
+@@ -250,8 +250,8 @@ fn scroll_arrows(ui: &mut Ui, t: &Tokens, tab: &str, scroll: egui::scroll_area::
+ /// Excel's; the ribbon's tab and collapsed state are left as they were for when it closes.
+ fn file_menu(app: &mut SheetApp, ui: &mut Ui) {
+     let t = Tokens::get(ui.ctx());
+-    let label = egui::RichText::new(app.ui.language.tr("File")).font(theme::ui_font(13.5)).color(t.accent);
+-    let file = ui.add(egui::Button::new(label).frame(false).min_size(vec2(46.0, 30.0)));
++    let label = egui::RichText::new(app.ui.language.tr("File")).font(theme::ui_font(12.5)).color(t.accent);
++    let file = ui.add(egui::Button::new(label).frame(false).min_size(vec2(46.0, 24.0)));
+     if file.clicked() {
+         app.open_backstage(crate::backstage::Page::Home);
+     }
+diff --git a/crates/ui-egui/src/ribbon/automate.rs b/crates/ui-egui/src/ribbon/automate.rs
+index f254665..7c47201 100644
+--- a/crates/ui-egui/src/ribbon/automate.rs
++++ b/crates/ui-egui/src/ribbon/automate.rs
+@@ -90,9 +90,4 @@ pub(super) fn automate(app: &mut SheetApp, ui: &mut Ui) {
+     if __k.clicked() {
+         app.run_or_alert("app.checkForUpdates", json!({}));
+     }
+-    let __k = big_button(ui, Icon::Script, "About\nGridCraft", "Version, contributors and the AI models that helped", false);
+-    control_keytip(app, ui, &__k, "about");
+-    if __k.clicked() {
+-        app.open_dialog("about", json!({}));
+-    }
+ }
+diff --git a/crates/ui-egui/src/theme.rs b/crates/ui-egui/src/theme.rs
+index 9ebf199..4838481 100644
+--- a/crates/ui-egui/src/theme.rs
++++ b/crates/ui-egui/src/theme.rs
+@@ -228,9 +228,9 @@ impl Tokens {
+             hover: pick(dark, Color32::from_rgb(0xEB, 0xEB, 0xEB), Color32::from_rgb(0x42, 0x42, 0x42)),
+             pressed: pick(dark, Color32::from_rgb(0xDD, 0xDD, 0xDD), Color32::from_rgb(0x4D, 0x4D, 0x4D)),
+             separator: pick(dark, Color32::from_rgb(0xE0, 0xE0, 0xE0), Color32::from_rgb(0x48, 0x48, 0x48)),
+-            grid_bg: Color32::WHITE,
++            grid_bg: pick(dark, Color32::WHITE, Color32::from_gray(51)),
+             desk: pick(dark, Color32::from_rgb(0xDE, 0xDE, 0xDE), Color32::from_rgb(0x3A, 0x3A, 0x3A)),
+-            gridline: Color32::from_rgb(0xE1, 0xE1, 0xE1),
++            gridline: pick(dark, Color32::from_rgb(0xE1, 0xE1, 0xE1), Color32::from_gray(90)),
+             header_bg: pick(dark, Color32::from_rgb(0xF8, 0xF8, 0xF8), Color32::from_rgb(0x30, 0x30, 0x30)),
+             header_text: pick(dark, Color32::from_rgb(0x42, 0x42, 0x42), Color32::from_rgb(0xCC, 0xCC, 0xCC)),
+             header_line: pick(dark, Color32::from_rgb(0xD6, 0xD6, 0xD6), Color32::from_rgb(0x45, 0x45, 0x45)),
+@@ -245,7 +245,7 @@ impl Tokens {
+             tab_bar: pick(dark, Color32::from_rgb(0xF3, 0xF3, 0xF3), Color32::from_rgb(0x29, 0x29, 0x29)),
+             tab_active: pick(dark, Color32::WHITE, Color32::from_rgb(0x3A, 0x3A, 0x3A)),
+             status_bar: pick(dark, Color32::from_rgb(0xF3, 0xF3, 0xF3), Color32::from_rgb(0x29, 0x29, 0x29)),
+-            cell_text: Color32::BLACK,
++            cell_text: pick(dark, Color32::BLACK, Color32::WHITE),
+             menu_bg: pick(dark, Color32::WHITE, Color32::from_rgb(0x30, 0x30, 0x30)),
+             shadow: pick(dark, Color32::from_black_alpha(40), Color32::from_black_alpha(90)),
+             danger: pick(dark, Color32::from_rgb(0xC4, 0x2B, 0x1C), Color32::from_rgb(0xFF, 0x95, 0x85)),
+@@ -373,7 +373,7 @@ pub fn apply(ctx: &egui::Context, dark: bool) {
+ 
+ /// Model colour → egui colour.
+ pub fn color32(rgb: [u8; 3]) -> Color32 {
+-    Color32::from_rgb(rgb[0], rgb[1], rgb[2])
++    crate::folio::color(Color32::from_rgb(rgb[0], rgb[1], rgb[2]), crate::folio::dark() == Some(true))
+ }
+ 
+ #[cfg(test)]
+diff --git a/crates/ui-egui/src/theme/font_setup.rs b/crates/ui-egui/src/theme/font_setup.rs
+index da995c4..8db11cb 100644
+--- a/crates/ui-egui/src/theme/font_setup.rs
++++ b/crates/ui-egui/src/theme/font_setup.rs
+@@ -528,6 +528,7 @@ pub(super) fn font_definitions_impl(
+     // Only families egui still has data for count as bound (a dropped face can empty a chain).
+     bound.retain(|f| fonts.families.get(&FontFamily::Name(f.as_str().into())).is_some_and(|c| !c.is_empty()));
+     crate::fonts::set_bound(bound);
++    crate::folio::install_ui_fonts(&mut fonts, UI, UI_BOLD);
+     fonts
+ }
+ 
+diff --git a/crates/ui-egui/src/theme/tests.rs b/crates/ui-egui/src/theme/tests.rs
+index 359336e..312e458 100644
+--- a/crates/ui-egui/src/theme/tests.rs
++++ b/crates/ui-egui/src/theme/tests.rs
+@@ -28,7 +28,7 @@ fn fallback_faces_are_appended_to_every_family() {
+ fn craft_fonts_are_the_last_fallback_in_every_family() {
+     // Ordering: app/bundled faces, Hack/emoji, system script fallbacks, permitted craft faces.
+     // A craft face must never displace a system face that already covers a glyph.
+-    let fonts = font_definitions_for_language(Language::En);
++    let fonts = font_definitions_for_language(Language::Es);
+     let expected: Vec<String> = craft_font_faces().into_iter().map(|(key, _)| key).collect();
+     if expected.is_empty() {
+         return; // optional input absent
+@@ -102,7 +102,7 @@ fn available_text_maps_unbundled_chrome_symbols() {
+ fn interface_families_fall_back_to_the_cell_font() {
+     // Structural (#349): the formula bar, name box and dialogs draw every script the cells can,
+     // so each interface chain carries the cell face, ahead of the script fallback faces.
+-    let fonts = font_definitions_for_language(Language::En);
++    let fonts = font_definitions_for_language(Language::Es);
+     let cell = format!("sys-{CELL}");
+     if !fonts.font_data.contains_key(&cell) {
+         return; // no system cell font on this machine
+@@ -129,7 +129,7 @@ fn language_reorders_only_the_han_faces() {
+         ["sys-cjk-han-zh", "sys-cjk-han-ja", "sys-cjk-hangul", "sys-thai", "sys-lao", "sys-hebrew", "sys-arabic", "sys-symbols", "sys-symbols-2"]
+     );
+     assert_eq!(HanOrder::of(Language::Ja), HanOrder::Japanese);
+-    for l in [Language::En, Language::Zh, Language::Ko, Language::Ru, Language::PtBr, Language::De, Language::Cs, Language::Fr, Language::Tr] {
++    for l in [Language::Es, Language::Zh, Language::Ko, Language::Ru, Language::PtBr, Language::De, Language::Cs, Language::Fr, Language::Tr] {
+         assert_eq!(HanOrder::of(l), HanOrder::Chinese, "{l:?} shares the default order (no font rebuild)");
+     }
+ }
+@@ -166,7 +166,7 @@ fn cjk_fallback_probes_flatpak_fonts_with_the_correct_locale_faces() {
+ fn fallback_faces_load_each_file_once() {
+     // The region-merged Noto Sans CJK .ttc serves Japanese, Chinese and Hangul; it must be loaded
+     // once, not once per script (tens of MB each).
+-    for language in [Language::En, Language::Ja] {
++    for language in [Language::Es, Language::Ja] {
+         let fonts = font_definitions_for_language(language);
+         let present: Vec<&Arc<FontData>> = fallback_faces(HanOrder::of(language)).into_iter().filter_map(|(k, _)| fonts.font_data.get(k)).collect();
+         for (i, a) in present.iter().enumerate() {
+@@ -201,7 +201,7 @@ fn fallback_covers_its_script() {
+         // Czech interface labels: every Czech accented letter, in both cases.
+         ("ui", candidates(UI), "Příliš žluťoučký kůň úpěl ďábelské ódy ŘŠČŽÝÁÍÉÚŮĚŤĎŇÓ"),
+     ];
+-    for language in [Language::En, Language::Ja] {
++    for language in [Language::Es, Language::Ja] {
+         let ctx = egui::Context::default();
+         ctx.set_fonts(font_definitions_for_language(language));
+         let mut out = ctx.run_ui(egui::RawInput::default(), |_ui| {});
+@@ -446,7 +446,7 @@ fn macos_bold_interface_face_is_drawn_unhinted() {
+     // #1184: Helvetica Neue Bold's own TrueType hints close Cyrillic е into ө at 13 pt on a
+     // Retina screen. Core Text never runs them, so on macOS the face goes unhinted like every
+     // other app draws it; the regular face and the other platforms keep egui's default.
+-    let fonts = font_definitions_for_language(Language::En);
++    let fonts = font_definitions_for_language(Language::Es);
+     let hinting = |key: &str| fonts.font_data.get(key).map(|fd| fd.tweak.hinting);
+     if let Some(bold) = hinting(&format!("sys-{UI_BOLD}")) {
+         assert_eq!(bold, if cfg!(target_os = "macos") { Some(false) } else { None });
+diff --git a/docs/folio-android.md b/docs/folio-android.md
+new file mode 100644
+index 0000000..3a1c4a9
+--- /dev/null
++++ b/docs/folio-android.md
+@@ -0,0 +1,9 @@
++# Folio Android integration
++
++2026-10-23. Local downstream fork for Folio Office 0.5.0.
++
++Folio owns document tabs, save, undo, redo and the appearance preference. The duplicate native title strip and the Account, About and community promotions are removed. Required copyright and licence notices remain in the Android distribution. Dark document colours affect only rendering; document data and exports retain their original colours.
++
++Validation: WebAssembly release build and Folio browser import/edit/export integration tests. Android APK assembly and signature verification.
++
++The primary menu row is 24 logical pixels (80% of WordCraft's previous 30), with Inter 12.5 pt and semibold selection. GridCraft and DeckCraft take the same pinned, OFL Inter family as an optional build input; model and cell fonts are unchanged.

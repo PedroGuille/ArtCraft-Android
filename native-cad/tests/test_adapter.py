@@ -69,6 +69,25 @@ class AdapterTest(unittest.TestCase):
         self.make_zip(prefix="")
         self.assertFalse(tablet.prepare(self.archive, self.output)["conflicts"])
 
+    def test_reviewed_profile_requires_every_original_input(self):
+        self.make_zip()
+        payload=b"Reviewed tablet implementation.\n"
+        profile={"id":"fixture-current", "match":{"README-unmodified.md":tablet.sha(self.original["README-unmodified.md"])},
+                 "files":[{"path":"README-unmodified.md", "source":"fixture-reviewed", "sha256":tablet.sha(payload)}]}
+        adapter={**self.adapter, "source_profiles":[profile]}
+        checked=tablet.checked_payload
+        def content(kit,name,expected):
+            return payload if name=="fixture-reviewed" else checked(kit,name,expected)
+        with mock.patch.object(tablet,"load_adapter",return_value=(adapter,"fixture-digest")),mock.patch.object(tablet,"checked_payload",side_effect=content):
+            report=tablet.prepare(self.archive,self.output)
+            self.assertEqual(report["source_profile"],"fixture-current")
+            self.assertEqual((self.output/"README-unmodified.md").read_bytes(),payload)
+            self.make_zip({"README-unmodified.md":b"New desktop content\n"})
+            other=self.root/"future"
+            report=tablet.prepare(self.archive,other)
+            self.assertNotIn("source_profile",report)
+            self.assertEqual((other/"README-unmodified.md").read_bytes(),b"New desktop content\n")
+
     def test_independent_future_changes_and_version_are_preserved(self):
         manifest = self.original["Cargo.toml"].replace(b'"0.14.0"', b'"0.15.2"')
         chunks = self.original["Cargo.lock"].decode().split("[[package]]")
@@ -192,7 +211,7 @@ class AdapterTest(unittest.TestCase):
         original = (self.output / ".tablet/upstream-Cargo.lock").read_bytes()
         (self.output / "Cargo.lock").write_bytes(original)
 
-        def minimal_resolution(*args):
+        def minimal_resolution(*args, **kwargs):
             (self.output / "Cargo.lock").write_bytes(original + b'\n[[package]]\nname = "new-android-only"\nversion = "1.0.0"\n')
 
         with mock.patch.object(tablet, "run_logged", side_effect=minimal_resolution):
@@ -206,7 +225,7 @@ class AdapterTest(unittest.TestCase):
         report["lock_status"] = "needs_android_resolution"
         original = (self.output / ".tablet/upstream-Cargo.lock").read_bytes()
 
-        def invalid_resolution(*args):
+        def invalid_resolution(*args, **kwargs):
             (self.output / "Cargo.lock").write_bytes(b'version=4\n[[package]]\nname="other"\nversion="1.0.0"\n')
 
         with mock.patch.object(tablet, "run_logged", side_effect=invalid_resolution):

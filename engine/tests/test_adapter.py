@@ -31,9 +31,48 @@ class AdapterTests(unittest.TestCase):
   self.assertFalse((source/'crates/ui-egui/src/i18n/fr.rs').exists());self.assertTrue((source/'crates/ui-egui/src/i18n/es.rs').exists());self.assertTrue((source/'crates/ui-egui/src/i18n/mod.rs').exists())
   self.assertEqual(engine['version'],'1.0.0')
  def test_conflict_stops_the_build(self):
+  import compatibility
   engine,project,clone=self.fixture(True)
-  with patch.object(pipeline,'clone_commit',clone),self.assertRaisesRegex(pipeline.BuildError,'actualizar el adaptador'):
+  with patch.object(compatibility,'profile',return_value=None),patch.object(pipeline,'clone_commit',clone),self.assertRaisesRegex(pipeline.BuildError,'actualizar el adaptador'):
    pipeline.apply_adapter(engine,project,self.root/'sources')
   self.assertFalse((project/'app/src/main/assets/engines').exists())
+
+ def test_reviewed_adapter_keeps_new_code_after_legacy_conflict(self):
+  import compatibility
+  engine,project,clone=self.fixture(True)
+  origin=self.root/'origin';code=origin/'integration.rs'
+  code.write_text(code.read_text().replace('New upstream functionality','New upstream functionality + Lucy compact menu'))
+  reviewed=self.root/'reviewed.patch';reviewed.write_bytes(subprocess.check_output(['git','diff','--binary','HEAD'],cwd=origin))
+  candidate={'path':reviewed,'base_commit':engine['source_commit'],'source_prune':[]}
+  engine['language_mode']='all'
+  with patch.object(pipeline,'clone_commit',clone),patch.object(compatibility,'profile',return_value=candidate):
+   source=pipeline.apply_adapter(engine,project,self.root/'sources')
+  self.assertIn('New upstream functionality + Lucy compact menu',(source/'integration.rs').read_text())
+  self.assertEqual(engine['adapter_profile'],'2026-11-06')
+  self.assertTrue((source/'crates/ui-egui/src/i18n/fr.rs').exists())
+
+ def test_reviewed_adapter_cannot_hide_a_new_conflict(self):
+  import compatibility
+  engine,project,clone=self.fixture(True)
+  candidate={'path':project/'third_party/patches/gridcraft.patch','base_commit':engine['adapter_base_commit'],'source_prune':[]}
+  with patch.object(pipeline,'clone_commit',clone),patch.object(compatibility,'profile',return_value=candidate),self.assertRaises(pipeline.BuildError):
+   pipeline.apply_adapter(engine,project,self.root/'sources')
+
+
+ def test_exact_reviewed_adapter_wins_even_when_legacy_merge_is_clean(self):
+  import compatibility
+  engine,project,clone=self.fixture(False)
+  origin=self.root/'origin';code=origin/'integration.rs'
+  code.write_text(code.read_text().replace('line3\n','Lucy current API\n'))
+  reviewed=self.root/'current.patch';reviewed.write_bytes(subprocess.check_output(['git','diff','--binary','HEAD'],cwd=origin))
+  candidate={'path':reviewed,'base_commit':engine['source_commit'],'source_prune':[],'reviewed_at':'2026-11-09'}
+  engine['language_mode']='all'
+  with patch.object(pipeline,'clone_commit',clone),patch.object(compatibility,'profile',return_value=candidate):
+   source=pipeline.apply_adapter(engine,project,self.root/'sources')
+  text=(source/'integration.rs').read_text()
+  self.assertIn('Lucy current API',text)
+  self.assertNotIn('Lucy compact menu',text)
+  self.assertIn('New upstream functionality',text)
+  self.assertEqual(engine['adapter_profile'],'2026-11-09')
 
 if __name__=='__main__':unittest.main()

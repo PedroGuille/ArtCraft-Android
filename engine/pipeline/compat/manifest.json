@@ -1,0 +1,88 @@
+{
+  "schema": 1,
+  "date": "2026-11-09",
+  "engines": {
+    "wordcraft": {
+      "base_commit": "05f781cfdac1d89034c0f4f5824b597ff845f2ef",
+      "patches": {
+        "all": {
+          "file": "wordcraft/2026-11-09-all.patch",
+          "sha256": "e39a18767ac81ab9f0e3431f269572f0ddf05b7e49b4fcd1db22fc4fd90f4bf5"
+        },
+        "es": {
+          "file": "wordcraft/2026-11-09-es.patch",
+          "sha256": "80c7f0af3e1b3ce436cdf79f99e43e207f13c8be30e805136cc1f1d33369cf1e"
+        }
+      },
+      "source_prune": [
+        "crates/ui-egui/src/credits.rs"
+      ],
+      "catalogs": "upstream",
+      "reviewed_at": "2026-11-09"
+    },
+    "gridcraft": {
+      "base_commit": "e9addf52fe68847e6c1310fcfa5d42b7aa8b9650",
+      "patches": {
+        "all": {
+          "file": "gridcraft/2026-11-09-all.patch",
+          "sha256": "d974aaf60cfef42f6e4c39ce766de2c0535086781f7bba83a2d2e1d5a9016892"
+        },
+        "es": {
+          "file": "gridcraft/2026-11-09-es.patch",
+          "sha256": "e09399a968762f82803c8b2dc0a98f9d9dfa6556ce004cdd8b585544e46f322e"
+        }
+      },
+      "source_prune": [
+        "crates/ui-egui/src/credits.rs",
+        "crates/ui-egui/src/dialogs/about.rs"
+      ],
+      "catalogs": "upstream",
+      "reviewed_at": "2026-11-09"
+    },
+    "pdfcraft": {
+      "base_commit": "ba28458ad8bd8d8b5b83c14f643bfa8ce9592f60",
+      "patches": {
+        "all": {
+          "file": "pdfcraft/2026-11-09-all.patch",
+          "sha256": "8827008ca0bd12d048b0acfa9c3d5ba7c0a69afbb8ccaaf2d7eb869f989155c8"
+        },
+        "es": {
+          "file": "pdfcraft/2026-11-09-es.patch",
+          "sha256": "ed2c258da6a050da84c76c4b4c46c0741a4c4b67ed70f4489937f00c008348b9"
+        }
+      },
+      "source_prune": [
+        "crates/ui-egui/src/dialogs/credits.rs",
+        "docs/brand/artcraft-logo-white.png",
+        "docs/brand/artcraft-logo-white.svg",
+        "docs/brand/artcraft-logo.png",
+        "docs/brand/artcraft-logo.svg",
+        "docs/brand/artcraft-mark-black.png",
+        "docs/brand/artcraft-mark-black.svg",
+        "docs/brand/artcraft-mark.png",
+        "docs/brand/artcraft-mark.svg"
+      ],
+      "catalogs": "upstream",
+      "reviewed_at": "2026-11-09"
+    },
+    "deckcraft": {
+      "base_commit": "0623b430324cf4c3d1962e6ae7885cf30c011c5e",
+      "patches": {
+        "all": {
+          "file": "deckcraft/2026-11-09-all.patch",
+          "sha256": "e844a93e9691d38dde745e22d4d2e750d8247966af68ffa30bfc8070080a1923"
+        },
+        "es": {
+          "file": "deckcraft/2026-11-09-es.patch",
+          "sha256": "e34812351594a8215b7abf93dbe81f3810a634522afb7c6280a808ea1018a169"
+        }
+      },
+      "source_prune": [
+        "crates/ui-egui/src/dialogs/about.rs",
+        "crates/ui-egui/src/dialogs/credits.rs"
+      ],
+      "catalogs": "upstream",
+      "reviewed_at": "2026-11-09"
+    }
+  }
+}

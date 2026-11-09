@@ -9,7 +9,7 @@ import argparse,base64,json,os,shutil,subprocess,tempfile
 
 ROOT=Path(__file__).resolve().parent
 APP='io.github.pedroguille.LucyBuilder'
-VERSION='2.1.1'
+VERSION='2.3.1'
 
 def run(*args):subprocess.run(list(map(str,args)),check=True)
 
@@ -22,7 +22,7 @@ def app_tree(path):
     files=path/'files';lib=files/'lib/lucy-builder';lib.mkdir(parents=True)
     for directory in ['app','engine','native-cad']:
         shutil.copytree(ROOT/directory,lib/directory,ignore=shutil.ignore_patterns('__pycache__','*.pyc','.git','.cache','cache','work','target','dist','*.p12','*.pfx','*.jks','*.keystore','*.apk'))
-    for name in ['README.md','LICENSE']:shutil.copy2(ROOT/name,lib/name)
+    for name in ['README.md','LICENSE','VALIDACION-'+VERSION+'.md']:shutil.copy2(ROOT/name,lib/name)
     for source,dest in [('lucy-builder','bin/lucy-builder'),(APP+'.desktop','share/applications/'+APP+'.desktop'),(APP+'.metainfo.xml','share/metainfo/'+APP+'.metainfo.xml'),(APP+'.svg','share/icons/hicolor/scalable/apps/'+APP+'.svg')]:
         target=files/dest;target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(ROOT/'flatpak'/source,target);target.chmod(0o755 if source=='lucy-builder' else 0o644)
     manifest=json.loads((ROOT/'flatpak'/str(APP+'.json')).read_text())

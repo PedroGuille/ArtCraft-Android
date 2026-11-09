@@ -74,7 +74,7 @@ def build(name,state,output,job,tools):
  source,commit=sources(name,state,job['revision_mode']);emit('revisions',heads={name:commit})
  base=json.loads((pipeline.TEMPLATE/'engine-lock.json').read_text());lock=copy.deepcopy(base)
  lock['translations']={'mode':'embedded-in-upstream','repository':BY_ID[name].repository,'source_commit':commit}
- font_rev=(source/'craft-fonts.rev').read_text().strip() if (source/'craft-fonts.rev').exists() else (json.loads((Path(__file__).parents[1]/'app/verified.json').read_text())['fonts']['source_commit'] if job['revision_mode']=='verified' else pipeline.latest('storytold/craft-fonts'))
+ font_rev=(source/'craft-fonts.rev').read_text().strip() if (source/'craft-fonts.rev').exists() else (json.loads((Path(__file__).parents[1]/'app'/('reviewed.json' if job['revision_mode']=='reviewed' else 'verified.json')).read_text())['fonts']['source_commit'] if job['revision_mode'] in {'reviewed','verified'} else pipeline.latest('storytold/craft-fonts'))
  if not pipeline.SHA.fullmatch(font_rev):raise ValueError('Revisión de fuentes inválida.')
  fonts=state/'cache/fonts'/font_rev
  if not fonts.exists():pipeline.clone_commit('storytold/craft-fonts',font_rev,fonts)

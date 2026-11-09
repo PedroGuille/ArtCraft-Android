@@ -1,0 +1,748 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 993a15f..e180bc4 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -128,8 +128,8 @@ debug = "line-tables-only"
+ 
+ [profile.release]
+ opt-level = 3
+-lto = "thin"
+-codegen-units = 16
++lto = false
++codegen-units = 1
+ debug = 0
+ 
+ # Required by craft-pdf: the backend rejects writers that failed during unwinding.
+diff --git a/apps/wordcraft-web/index.html b/apps/wordcraft-web/index.html
+index ca6ad46..80f385d 100644
+--- a/apps/wordcraft-web/index.html
++++ b/apps/wordcraft-web/index.html
+@@ -1,5 +1,5 @@
+ <!DOCTYPE html>
+-<html lang="en">
++<html lang="es">
+ <head>
+   <meta charset="utf-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+@@ -15,6 +15,6 @@
+ </head>
+ <body>
+   <canvas id="wordcraft_canvas"></canvas>
+-  <div id="wordcraft_loading">Loading WordCraft&hellip;</div>
++  <div id="wordcraft_loading">Cargando WordCraft&hellip;</div>
+ </body>
+ </html>
+diff --git a/crates/engine/src/session/run.rs b/crates/engine/src/session/run.rs
+index 3339e18..b376e27 100644
+--- a/crates/engine/src/session/run.rs
++++ b/crates/engine/src/session/run.rs
+@@ -71,6 +71,10 @@ impl Session {
+         let ime_text_join = self.ime_text_join.take();
+         let reg = self.registry.clone();
+         let Some(spec) = reg.get(id) else { return Err(CmdError::Unknown(id.to_string())) };
++        if self.view.read_mode && (spec.mutates || matches!(id, "edit.undo" | "edit.redo" | "edit.undoTo")) {
++            return Err(CmdError::Disabled("Document is read only.".into()));
++        }
++
+         let join = join
+             || (equation_join && matches!(id, "equation.type" | "equation.backspace"))
+             || (id == "text.insert" && ime_text_join.as_ref().is_some_and(|sel| sel == &self.sel));
+@@ -455,3 +459,22 @@ impl Session {
+         result
+     }
+ }
++
++#[cfg(test)]
++mod folio_reading_tests {
++    use super::*;
++    #[test]
++    fn reading_blocks_edits_and_undo_without_protecting_the_file() {
++        let mut session = Session::new(Document::new());
++        assert!(session.run("text.insert", &serde_json::json!({"text":"Original"})).is_ok());
++        let original = session.doc.clone();
++        session.view.read_mode = true;
++        for (id, params) in [("text.insert", serde_json::json!({"text":"Changed"})), ("edit.undo", serde_json::json!({})), ("edit.redo", serde_json::json!({}))] {
++            assert!(session.run(id, &params).is_err(), "{id}");
++            assert!(session.doc.same_content(&original));
++        }
++        assert!(session.doc.settings.protection.is_none());
++        session.view.read_mode = false;
++        assert!(session.run("text.insert", &serde_json::json!({"text":" editable"})).is_ok());
++    }
++}
+diff --git a/crates/ui-egui/src/app.rs b/crates/ui-egui/src/app.rs
+index b2533e5..9851302 100644
+--- a/crates/ui-egui/src/app.rs
++++ b/crates/ui-egui/src/app.rs
+@@ -234,6 +234,28 @@ impl WordApp {
+         // #2726: egui's AccessKit update must carry the focused node in its node list; a frame
+         // that drops it panics in `accesskit_consumer` and closes the window (see `a11y::FocusGuard`).
+         ctx.add_plugin(super::a11y::FocusGuard);
++        if let Some(dark) = crate::folio::dark() {
++            self.ui.theme = if dark { crate::theme::Appearance::Dark } else { crate::theme::Appearance::Light };
++            self.ui.dark_page = dark;
++            self.session.view.dark_mode = dark;
++        }
++        if let Some(read_only) = crate::folio::read_only() {
++            let key = egui::Id::new("folio.read-only");
++            let previous = ctx.data_mut(|data| data.get_temp::<bool>(key));
++            if previous != Some(read_only) || (read_only && !self.session.view.read_mode) {
++                if read_only || previous == Some(true) {
++                    self.canvas.read_first_visible = None;
++                    let command = if read_only { "view.readMode" } else { "view.printLayout" };
++                    let _ = self.session.run(command, &serde_json::json!({}));
++                }
++                ctx.data_mut(|data| data.insert_temp(key, read_only));
++            }
++            if read_only {
++                use wordcraft_engine::cmd::view::ReadPageColor;
++                self.session.view.read_page_color = if self.session.view.dark_mode { ReadPageColor::Inverse } else { ReadPageColor::None };
++            }
++        }
++
+         updates_ui::tick(self, ctx);
+         crate::language_packs::tick(self);
+         let lang = i18n::Lang::from_pref(&self.ui.language);
+diff --git a/crates/ui-egui/src/app/commands.rs b/crates/ui-egui/src/app/commands.rs
+index 568c7ef..c9037fb 100644
+--- a/crates/ui-egui/src/app/commands.rs
++++ b/crates/ui-egui/src/app/commands.rs
+@@ -28,6 +28,13 @@ impl WordApp {
+     /// Close, Envelopes, Labels and Finish & Merge on a document with unsaved changes first ask
+     /// Save / Don't Save / Cancel, and the command runs once that is answered (`ui.saveChanges`).
+     pub fn run(&mut self, id: &str, params: Value) -> Result<Value, String> {
++        if crate::folio::read_only() == Some(true) {
++            let editing = self.session.registry.get(id).is_some_and(|spec| spec.mutates);
++            if editing || matches!(id, "edit.undo" | "edit.redo" | "edit.undoTo" | "view.printLayout" | "view.webLayout" | "view.draft" | "view.outline") {
++                return Err("Solo lectura: desactiva este modo desde el menú de Lucy para editar.".into());
++            }
++        }
++
+         // Comment text still being typed is written first, so a save or export has it and a
+         // close, New or Open counts it as a change (#1348). A draft the document refuses is not
+         // part of it: saving and exporting go on without it (the refusal stays on the status
+@@ -769,10 +776,7 @@ impl WordApp {
+                         .into(),
+                 ));
+             }
+-            "ui.discord" => {
+-                self.canvas.open_url = Some("https://discord.gg/artcraft".into());
+-                json!({})
+-            }
++
+             "ui.caretAnimation" => {
+                 // File › Options › Advanced › Animation: `value` true or false turns the caret's
+                 // glide and fading blink on or off; no value reads it.
+@@ -1116,7 +1120,6 @@ pub(crate) fn works_without_document(id: &str) -> bool {
+             | "ui.printCancel"
+             | "ui.fileBrowser"
+             | "ui.makeDefaultApp"
+-            | "ui.discord"
+             | "ui.caretAnimation"
+             | "ui.startScreen"
+             | "ui.recentRemove"
+diff --git a/crates/ui-egui/src/app/frame.rs b/crates/ui-egui/src/app/frame.rs
+index cd52541..ed8b421 100644
+--- a/crates/ui-egui/src/app/frame.rs
++++ b/crates/ui-egui/src/app/frame.rs
+@@ -71,7 +71,6 @@ impl WordApp {
+             backstage::show(self, ui);
+         } else if !self.has_document() {
+             // No document open (#1129): the ribbon greyed out but for Help, and no page.
+-            chrome::title_bar(self, ui);
+             ribbon::show(self, ui);
+             chrome::status_bar(self, ui);
+             egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |_| {});
+@@ -82,7 +81,6 @@ impl WordApp {
+             if screen != chrome::Screen::Normal {
+                 chrome::screen_bar(self, ui, screen);
+             } else {
+-                chrome::title_bar(self, ui);
+                 if moved(self) {
+                     return;
+                 }
+diff --git a/crates/ui-egui/src/backstage.rs b/crates/ui-egui/src/backstage.rs
+index a17b0a4..afd4ccd 100644
+--- a/crates/ui-egui/src/backstage.rs
++++ b/crates/ui-egui/src/backstage.rs
+@@ -55,17 +55,6 @@ fn back_chevron_c(band_min_x: f32, center_y: f32, fullscreen: bool, content_left
+     pos2(band_min_x + x, center_y)
+ }
+ 
+-/// The bottom of the backstage menu: About, and the community link unless the user turned the
+-/// community button off — the title bar pill honors the same setting, so the menu hides the
+-/// link with it.
+-fn bottom_links(app: &WordApp) -> Vec<(&'static str, &'static str)> {
+-    let mut links = vec![("About", "about")];
+-    if app.ui.show_discord {
+-        links.push(("Discord community", "discord"));
+-    }
+-    links
+-}
+-
+ /// Draws the Backstage side menu and the active page. Without a document only the Home, New, Open
+ /// and Options pages work, and it handles Back, Escape, Save, Save As and Close routing.
+ pub fn show(app: &mut WordApp, ui: &mut Ui) {
+@@ -165,24 +154,6 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
+                     go_to_page(app, id);
+                 }
+             }
+-            ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+-                for (label, id) in bottom_links(app) {
+-                    let (r, resp) = ui.allocate_exact_size(vec2(200.0, 32.0), Sense::click());
+-                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), tl!(label)));
+-                    if resp.hovered() {
+-                        ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(26));
+-                    }
+-                    let at = pos2(crate::rtl::lead_x(rtl, r, 22.0), r.center().y);
+-                    ui.painter().text(at, crate::rtl::lead_center(rtl), tl!(label), regular(13.0), egui::Color32::WHITE);
+-                    if resp.clicked() {
+-                        if id == "discord" {
+-                            let _ = app.run("ui.discord", json!({}));
+-                        } else {
+-                            app.dialog = crate::dialogs::Dialog::open("about", app);
+-                        }
+-                    }
+-                }
+-            });
+         });
+     egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.ribbon).inner_margin(egui::Margin::symmetric(0, 30))).show(ui, |ui| {
+         // The side padding sits inside the pages, so the scroll area reaches the window's edge.
+diff --git a/crates/ui-egui/src/chrome.rs b/crates/ui-egui/src/chrome.rs
+index f370ddb..f4ed25f 100644
+--- a/crates/ui-egui/src/chrome.rs
++++ b/crates/ui-egui/src/chrome.rs
+@@ -62,42 +62,6 @@ pub(crate) fn qat_enabled(app: &WordApp, id: &str) -> bool {
+ 
+ /// The Quick Access Toolbar (#379): the user's commands (Save, Undo, Redo until customized), each
+ /// with a right-click menu, then the menu button that customizes it (#376).
+-fn quick_access(ui: &mut Ui, app: &mut WordApp) {
+-    let ids: Vec<String> = app.session.ribbon.qat().into_iter().map(str::to_string).collect();
+-    for (index, id) in ids.iter().enumerate() {
+-        let id = id.as_str();
+-        let tip = match id {
+-            "edit.undo" => crate::i18n::prefixed("Undo", app.session.undo_label().unwrap_or("")),
+-            "edit.redo" => tl!("Redo").to_string(),
+-            "file.save" => tl!("Save").to_string(),
+-            _ => app.session.registry.get(id).map(|s| tl!(s.label).to_string()).unwrap_or_default(),
+-        };
+-        let enabled = qat_enabled(app, id);
+-        let resp = qat_button(ui, app, crate::widgets::command_icon(id), &tip, id, enabled);
+-        if app.ui.keytips == crate::keytips::Phase::Tabs && ui.is_rect_visible(resp.rect) {
+-            let label = crate::keytips::qat_label(index, ids.len());
+-            if label.starts_with(&app.ui.keytip_prefix) {
+-                app.keytip_rects.push((resp.rect, label));
+-            }
+-        }
+-        crate::widgets::command_menu(&resp, app, id);
+-        if id == "edit.undo" {
+-            undo_list_button(ui, app, enabled);
+-        }
+-    }
+-    let t = Tokens::get(ui.ctx());
+-    let (r, _) = ui.allocate_exact_size(vec2(26.0, 24.0), Sense::hover());
+-    let resp = ui.interact(r, qat_menu_button_id(), Sense::click());
+-    if resp.hovered() {
+-        ui.painter().rect_filled(r, 4.0, t.hover);
+-    }
+-    icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(16.0, 16.0)), "more", t.icon, t.accent);
+-    let resp = resp.on_hover_text(tl!("Customize Quick Access Toolbar"));
+-    crate::rtl::menu(&resp).show(|ui| {
+-        ui.set_min_width(220.0);
+-        crate::rtl::root(ui, |ui| qat_menu(ui, app));
+-    });
+-}
+ 
+ /// The Undo button's drop-down arrow (#701), which opens [`undo_list`].
+ pub(crate) fn undo_list_button_id() -> egui::Id {
+@@ -202,9 +166,6 @@ fn undo_list(ui: &mut Ui, app: &mut WordApp) {
+ }
+ 
+ /// The Quick Access Toolbar's menu button (…), which opens [`qat_menu`].
+-pub(crate) fn qat_menu_button_id() -> egui::Id {
+-    egui::Id::unique("qat_menu_button")
+-}
+ 
+ /// The Quick Access Toolbar's menu: common commands to show or hide, and More Commands…
+ pub(crate) fn qat_menu(ui: &mut Ui, app: &mut WordApp) {
+@@ -283,168 +244,6 @@ fn autosave_knob_x(rtl: bool, on: bool, r: Rect) -> f32 {
+ 
+ /// Draws the title bar with window dragging, AutoSave, quick access, account, community and search
+ /// controls, and the centred clickable document title.
+-pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
+-    let t = Tokens::get(ui.ctx());
+-    // macOS: shorter, so the system's traffic lights are centred in it; the tallest controls
+-    // shrink to keep a margin above and below them.
+-    let mac = app.integrated_titlebar;
+-    let bar = app.mac_titlebar;
+-    let left = if mac { bar.content_left as i8 } else { 8 };
+-    let control_h = if mac { 22.0 } else { 26.0 };
+-    egui::Panel::top("title_bar")
+-        .exact_size(if mac { bar.height } else { 38.0 })
+-        .frame(egui::Frame::NONE.fill(t.title_bar).inner_margin(egui::Margin { left, right: 10, top: 0, bottom: 0 }))
+-        .show(ui, |ui| {
+-            let full = ui.max_rect();
+-            // Drag the window by the title bar (integrated title bar on macOS).
+-            let drag = ui.interact(full, ui.scope_id().with("title_drag"), Sense::click_and_drag());
+-            if drag.drag_started() {
+-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+-            }
+-            if drag.double_clicked() {
+-                let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
+-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
+-            }
+-            // The free stretch between the two clusters, for the centred title. Right to left the
+-            // clusters swap sides: AutoSave and the Quick Access Toolbar start at the right.
+-            let rtl = crate::rtl::on();
+-            let mut qat_end = if rtl { full.max.x } else { full.min.x };
+-            let mut right_start = if rtl { full.min.x } else { full.max.x };
+-            crate::rtl::root(ui, |ui| {
+-                ui.horizontal_centered(|ui| {
+-                    ui.spacing_mut().item_spacing = vec2(2.0, 0.0);
+-                    // AutoSave switch: greyed out, with the reason as its tooltip, when AutoSave can't
+-                    // cover the document (#196, #176); clicking it then offers Save As where that helps.
+-                    let block = app.autosave_block();
+-                    let on = app.autosaves();
+-                    let color = if block.is_some() { t.text_dim.gamma_multiply(0.6) } else { t.text_dim };
+-                    // The text is part of the switch (#3370): clicking it toggles AutoSave, and chrome
+-                    // text is not document text to select (double-clicking it copied "AutoSave").
+-                    let text = ui.add(
+-                        egui::Label::new(egui::RichText::new(tl!("AutoSave")).font(regular(11.5)).color(color))
+-                            .selectable(false)
+-                            .sense(Sense::click()),
+-                    );
+-                    let (r, resp) = ui.allocate_exact_size(vec2(30.0, 16.0), Sense::click());
+-                    let (fill, stroke, knob_fill) = match (&block, on) {
+-                        (Some(_), _) => (t.input.gamma_multiply(0.5), t.border.gamma_multiply(0.7), t.text_dim.gamma_multiply(0.45)),
+-                        (None, true) => (t.accent, t.accent, t.on_accent),
+-                        (None, false) => (t.input, t.border_strong, t.text_dim),
+-                    };
+-                    ui.painter().rect(r, 8.0, fill, Stroke::new(1.0, stroke), egui::StrokeKind::Inside);
+-                    let knob = autosave_knob_x(rtl, on, r);
+-                    ui.painter().circle_filled(pos2(knob, r.center().y), 5.0, knob_fill);
+-                    let tip = block
+-                        .as_ref()
+-                        .map_or_else(|| tl!("AutoSave saves every change to the file (needs a saved document)").to_string(), |b| b.reason());
+-                    let text = text.on_hover_text(tip.as_str()).on_hover_cursor(egui::CursorIcon::PointingHand);
+-                    let resp = resp.on_hover_text(tip.as_str()).on_hover_cursor(egui::CursorIcon::PointingHand);
+-                    if text.clicked() || resp.clicked() {
+-                        match block {
+-                            None => {
+-                                let _ = app.run("file.autosave", json!({}));
+-                            }
+-                            // AutoSave comes on once Save As has saved (maybe on a later frame, #94).
+-                            Some(b) if b.save_as_helps() => {
+-                                let _ = app.save_as(crate::file_dialogs::AfterSave::AutoSave);
+-                            }
+-                            Some(b) => app.status(b.reason()),
+-                        }
+-                    }
+-                    ui.add_space(8.0);
+-                    // Hidden (#1945): neither the buttons nor the … menu; the title centres as before.
+-                    if app.ui.quick_access_toolbar {
+-                        quick_access(ui, app);
+-                    }
+-                    qat_end = if rtl { ui.min_rect().min.x } else { ui.min_rect().max.x };
+-                    ui.with_layout(crate::rtl::far_side(ui, egui::Align::Center), |ui| {
+-                        // Account / community.
+-                        let (r, resp) = ui.allocate_exact_size(vec2(control_h, control_h), Sense::click());
+-                        ui.painter().circle_filled(r.center(), control_h / 2.0 - 1.0, t.accent);
+-                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tl!("Account")));
+-                        let initials: String = app.session.user_initials().chars().take(2).collect();
+-                        ui.painter().text(r.center(), Align2::CENTER_CENTER, initials, semibold(10.5), t.on_accent);
+-                        if resp.on_hover_text(format!("{} — set your name in File › Options", app.session.author)).clicked() {
+-                            let _ = app.run("ui.backstage", json!({"value": true, "page": "options", "pane": "general"}));
+-                        }
+-                        ui.add_space(8.0);
+-                        if app.ui.show_discord {
+-                            let (r, resp) = ui.allocate_exact_size(vec2(84.0, 22.0), Sense::click());
+-                            ui.painter().rect_filled(r, 11.0, if resp.hovered() { t.accent_text } else { t.accent });
+-                            icons::paint(
+-                                ui.painter(),
+-                                Rect::from_center_size(pos2(crate::rtl::lead_x(rtl, r, 13.0), r.center().y), vec2(14.0, 14.0)),
+-                                "discord",
+-                                t.on_accent,
+-                                t.on_accent,
+-                            );
+-                            ui.painter().text(
+-                                pos2(crate::rtl::lead_x(rtl, r, 24.0), r.center().y),
+-                                crate::rtl::lead_center(rtl),
+-                                tl!("Discord"),
+-                                medium(11.5),
+-                                t.on_accent,
+-                            );
+-                            if resp.on_hover_text(tl!("Join the ArtCraft community on Discord")).clicked() {
+-                                let _ = app.run("ui.discord", json!({}));
+-                            }
+-                            ui.add_space(8.0);
+-                        }
+-                        search_box(app, ui, control_h);
+-                        right_start = if rtl { ui.min_rect().max.x } else { ui.min_rect().min.x };
+-                    });
+-                })
+-            });
+-            let (qat_end, right_start) = if rtl { (right_start, qat_end) } else { (qat_end, right_start) };
+-            // Centred title.
+-            let title = if !app.has_document() {
+-                // No document open (#1129): the app's name alone.
+-                "WordCraft".to_string()
+-            } else {
+-                format!(
+-                    "{} — {}",
+-                    crate::i18n::isolate(&app.title_stem()),
+-                    if app.session.dirty {
+-                        tl!("Edited")
+-                    } else if app.session.path.is_some() {
+-                        tl!("Saved")
+-                    } else {
+-                        tl!("Not saved")
+-                    }
+-                )
+-            };
+-            let font = TypeRung::Chrome.semibold();
+-            let track = TypeRung::Chrome.tracking();
+-            let cx = full.center().x;
+-            let available = 2.0 * (cx - qat_end - 10.0).min(right_start - 10.0 - cx);
+-            let mut shown: String = title.chars().take(240).collect();
+-            if text_width(ui.painter(), &shown, &font, track, t.text) > available {
+-                while !shown.is_empty() && text_width(ui.painter(), &format!("{shown}…"), &font, track, t.text) > available {
+-                    shown.pop();
+-                }
+-                shown.push('…');
+-            }
+-            let w = text_width(ui.painter(), &shown, &font, track, t.text);
+-            if available > 24.0 {
+-                let rect = Rect::from_center_size(pos2(cx, full.center().y), vec2(w + 8.0, control_h));
+-                let response = ui.interact(rect, ui.scope_id().with("document_name"), Sense::click()).on_hover_text(tl!("Rename Document"));
+-                response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &title));
+-                if response.clicked() {
+-                    let _ = app.run("file.rename", json!({}));
+-                }
+-
+-                paint_text(
+-                    ui.painter(),
+-                    pos2(cx - w / 2.0, full.center().y - TypeRung::Chrome.line_height() / 2.0),
+-                    Align2::LEFT_TOP,
+-                    &shown,
+-                    &font,
+-                    track,
+-                    t.text,
+-                );
+-            }
+-        });
+-}
+ 
+ /// The title bar's Search box while it is typed in (#5398): the query, whether the text of the
+ /// shortcut that opened it (Alt+Q's `q` on some platforms) is still to be dropped, and where the
+diff --git a/crates/ui-egui/src/dialogs.rs b/crates/ui-egui/src/dialogs.rs
+index 0caadcb..012384d 100644
+--- a/crates/ui-egui/src/dialogs.rs
++++ b/crates/ui-egui/src/dialogs.rs
+@@ -313,10 +313,6 @@ pub enum Dialog {
+         #[serde(skip)]
+         note: String,
+     },
+-    /// Tabs: 0 About, 1 Contributors, 2 Models.
+-    About {
+-        tab: u8,
+-    },
+     /// Confirm before deleting a recovery copy.
+     DiscardRecovery {
+         id: String,
+@@ -528,7 +524,7 @@ impl Dialog {
+             Dialog::Refs(d) => d.name(),
+             Dialog::Icons { .. } => "icons",
+             Dialog::PasteSpecial { .. } => "pasteSpecial",
+-            Dialog::About { .. } => "about",
++
+             Dialog::SaveChanges { .. } => "saveChanges",
+             Dialog::DiscardRecovery { .. } => "discardRecovery",
+             Dialog::RecipientList { .. } => "recipientList",
+@@ -780,10 +776,7 @@ impl Dialog {
+             }
+             "pasteSpecial" => Dialog::paste_special(app, &json!({})),
+             "renameDocument" => Dialog::RenameDocument { name: app.title_stem(), message: String::new(), focus: true },
+-            "about" => Dialog::About { tab: 0 },
+-            "contributors" => Dialog::About { tab: 1 },
+-            "models" => Dialog::About { tab: 2 },
+-            "languageData" => Dialog::About { tab: 3 },
++
+             // The current list to edit, or a new one to type.
+             "recipientList" | "newRecipientList" => {
+                 let m = &app.session.merge;
+diff --git a/crates/ui-egui/src/dialogs/chrome.rs b/crates/ui-egui/src/dialogs/chrome.rs
+index 07f8ab8..c51d151 100644
+--- a/crates/ui-egui/src/dialogs/chrome.rs
++++ b/crates/ui-egui/src/dialogs/chrome.rs
+@@ -176,7 +176,7 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
+         Dialog::Refs(d) => d.title(),
+         Dialog::Icons { .. } => "Icons",
+         Dialog::PasteSpecial { .. } => "Paste Special",
+-        Dialog::About { .. } => "About WordCraft",
++
+         Dialog::SaveChanges { .. } => "WordCraft",
+         Dialog::DiscardRecovery { .. } => "Discard recovery copy",
+         Dialog::RecipientList { .. } => "Recipient List",
+diff --git a/crates/ui-egui/src/dialogs/dialogs_chart.rs b/crates/ui-egui/src/dialogs/dialogs_chart.rs
+index d976263..1d2997e 100644
+--- a/crates/ui-egui/src/dialogs/dialogs_chart.rs
++++ b/crates/ui-egui/src/dialogs/dialogs_chart.rs
+@@ -399,7 +399,7 @@ mod tests {
+         let mut f = ChartDataForm::of(&ChartSpec::sample(ChartType::Column));
+         f.add_row();
+         f.add_series();
+-        crate::i18n::set_current(crate::i18n::Lang::EN);
++        crate::i18n::set_current(crate::i18n::Lang::ES);
+         let (category, series) = (f.categories.last().unwrap(), f.names.last().unwrap());
+         assert!(category.starts_with("الفئة") && series.starts_with("السلسلة"), "{category:?} {series:?}");
+         for name in [category, series] {
+diff --git a/crates/ui-egui/src/dialogs/dispatch.rs b/crates/ui-egui/src/dialogs/dispatch.rs
+index ae4fca4..8d76478 100644
+--- a/crates/ui-egui/src/dialogs/dispatch.rs
++++ b/crates/ui-egui/src/dialogs/dispatch.rs
+@@ -39,7 +39,7 @@ pub(super) fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
+         Dialog::Macros { name } => macros(app, ui, name),
+         Dialog::Icons { query, category, selected } => icons_body(app, ui, query, category, selected),
+         Dialog::PasteSpecial { .. } => paste_special_dialog(app, ui, d),
+-        Dialog::About { .. } => about_dialog(ui, d),
++
+         Dialog::DiscardRecovery { .. } => discard_recovery_dialog(app, ui, d),
+         Dialog::SaveChanges { .. } => save_changes_dialog(app, ui, d),
+         Dialog::RecipientList { fields, rows, message, filter } => recipient_list(app, ui, fields, rows, message, filter),
+@@ -1156,37 +1156,6 @@ fn paste_special_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool
+     ok || cancel
+ }
+ 
+-fn about_dialog(ui: &mut Ui, d: &mut Dialog) -> bool {
+-    let Dialog::About { tab } = d else {
+-        return false;
+-    };
+-    ui.set_width(820.0);
+-    let names = [tl!("About").to_string(), tl!("Contributors").to_string(), tl!("Models").to_string(), tl!("Language data").to_string()];
+-    if let Some(i) = crate::widgets::dialog_tabs(ui, &names, *tab as usize) {
+-        *tab = i as u8;
+-    }
+-    ui.add_space(6.0);
+-    match *tab {
+-        1 => crate::credits::contributors_ui(ui),
+-        2 => crate::credits::models_ui(ui),
+-        3 => crate::language_packs::about_tab(ui),
+-        _ => {
+-            ui.label(egui::RichText::new(tl!("WordCraft")).font(semibold(22.0)));
+-            let build = option_env!("WORDCRAFT_BUILD_SHA").map(|s| s.get(..8).unwrap_or(s)).unwrap_or(tl!("development build"));
+-            ui.label(crate::i18n::fmt(tl!("Version {version} ({build})"), &[("version", env!("CARGO_PKG_VERSION")), ("build", build)]));
+-            ui.label(tl!("A free, open-source word processor written from scratch in Rust.\nPart of the Crafting Apps from the ArtCraft team."));
+-            ui.add_space(6.0);
+-            ui.hyperlink_to(tl!("getartcraft.com/apps/wordcraft"), "https://getartcraft.com/apps/wordcraft");
+-            ui.hyperlink_to(tl!("Join us on Discord: discord.gg/artcraft"), "https://discord.gg/artcraft");
+-            ui.hyperlink_to(tl!("Source code: github.com/storytold/wordcraft"), "https://github.com/storytold/wordcraft");
+-            ui.add_space(6.0);
+-            ui.label(egui::RichText::new(tl!("MIT OR Apache-2.0. Copyright (c) 2026 ArtCraft Team and the WordCraft contributors.")).small().weak());
+-        }
+-    }
+-    // One Close button: About has nothing to cancel.
+-    super::chrome::close_button(ui)
+-}
+-
+ fn discard_recovery_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
+     let Dialog::DiscardRecovery { name, .. } = d else {
+         return false;
+diff --git a/crates/ui-egui/src/dialogs/tests.rs b/crates/ui-egui/src/dialogs/tests.rs
+index 7cdb914..78d647f 100644
+--- a/crates/ui-egui/src/dialogs/tests.rs
++++ b/crates/ui-egui/src/dialogs/tests.rs
+@@ -297,7 +297,7 @@ fn command_search_respects_turkish_i_pairs_and_keeps_canonical_matches() {
+     crate::i18n::set_current(crate::i18n::fixture_lang("x-fixture", LABELS));
+     assert!(!command_matches(italic, "italik"), "İ lowercases to i plus a combining dot");
+     assert_eq!(crate::i18n::lowercase("Iİıi"), "ii\u{307}ıi");
+-    crate::i18n::set_current(crate::i18n::Lang::EN);
++    crate::i18n::set_current(crate::i18n::Lang::ES);
+ 
+     let mut fonts = false;
+     let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
+diff --git a/crates/ui-egui/src/folio.rs b/crates/ui-egui/src/folio.rs
+new file mode 100644
+index 0000000..f26db5b
+--- /dev/null
++++ b/crates/ui-egui/src/folio.rs
+@@ -0,0 +1,17 @@
++//! Folio Android display preference. This never changes the document model.
++#[cfg(target_arch = "wasm32")]
++pub fn dark() -> Option<bool> {
++    js_sys::Reflect::get(&js_sys::global(), &"__folioDark".into()).ok().and_then(|v| v.as_bool())
++}
++#[cfg(not(target_arch = "wasm32"))]
++pub fn dark() -> Option<bool> {
++    None
++}
++
++/// Ephemeral per-tab reading preference; it never sets document protection.
++#[cfg(target_arch = "wasm32")]
++pub fn read_only() -> Option<bool> {
++    js_sys::Reflect::get(&js_sys::global(), &"__folioReadOnly".into()).ok().and_then(|v| v.as_bool())
++}
++#[cfg(not(target_arch = "wasm32"))]
++pub fn read_only() -> Option<bool> { None }
+diff --git a/crates/ui-egui/src/keytips.rs b/crates/ui-egui/src/keytips.rs
+index 47b4c6b..fe4bf27 100644
+--- a/crates/ui-egui/src/keytips.rs
++++ b/crates/ui-egui/src/keytips.rs
+@@ -395,7 +395,7 @@ fn controls(tab: &str) -> Vec<Control> {
+             c("Full Screen", "view.fullScreen"),
+             c("Macros", "tools.macros"),
+         ],
+-        "Help" => vec![d("Help", "about"), c("Community Discord", "ui.discord"), d("Commands", "commands")],
++        "Help" => vec![d("Commands", "commands")],
+         "Table Design" => {
+             vec![m("Shading", "table.shading"), m("Borders", "table.borders"), c("Border Painter", "table.borderPainter")]
+         }
+diff --git a/crates/ui-egui/src/lib.rs b/crates/ui-egui/src/lib.rs
+index 516852f..2476cc1 100644
+--- a/crates/ui-egui/src/lib.rs
++++ b/crates/ui-egui/src/lib.rs
+@@ -33,7 +33,6 @@ pub mod chrome;
+ pub mod colors;
+ pub mod content_controls;
+ pub mod control;
+-pub mod credits;
+ pub mod crop;
+ pub mod desktop_theme;
+ pub mod dialogs;
+@@ -43,6 +42,7 @@ pub mod equation_tab;
+ #[cfg(not(target_arch = "wasm32"))]
+ pub mod file_browser;
+ pub mod file_dialogs;
++mod folio;
+ pub mod format_shape;
+ pub mod frame;
+ pub mod guides;
+@@ -339,7 +339,6 @@ pub struct UiState {
+     /// Headings whose sub-headings the Navigation pane hides (#1997); per session, not saved.
+     #[serde(skip)]
+     pub nav_collapsed: std::collections::HashSet<wordcraft_doc::Path>,
+-    pub show_discord: bool,
+     /// User name (File › Options) for comments and tracked changes. `None` (no saved name) keeps
+     /// the default; a saved empty name stays empty (#4368).
+     pub author: Option<String>,
+@@ -470,7 +469,6 @@ impl Default for UiState {
+             pane_places: Default::default(),
+             pane_order: Vec::new(),
+             nav_collapsed: Default::default(),
+-            show_discord: true,
+             author: None,
+             window: None,
+             language: i18n::AUTO.into(),
+diff --git a/crates/ui-egui/src/options.rs b/crates/ui-egui/src/options.rs
+index 43d5216..79e5ca5 100644
+--- a/crates/ui-egui/src/options.rs
++++ b/crates/ui-egui/src/options.rs
+@@ -249,7 +249,6 @@ fn general(app: &mut WordApp, ui: &mut Ui) {
+     {
+         let _ = app.run("view.darkMode", json!({"value": dark_page}));
+     }
+-    ui.checkbox(&mut app.ui.show_discord, tl!("Show the community button in the title bar"));
+     default_app_button(app, ui);
+     ui.add_space(8.0);
+     section(ui, "Start-up");
+diff --git a/crates/ui-egui/src/ribbon.rs b/crates/ui-egui/src/ribbon.rs
+index 66eccdd..9b59776 100644
+--- a/crates/ui-egui/src/ribbon.rs
++++ b/crates/ui-egui/src/ribbon.rs
+@@ -151,7 +151,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
+     }
+     // Tab strip.
+     egui::Panel::top("tabs")
+-        .exact_size(30.0)
++        .exact_size(24.0)
+         .frame(egui::Frame::NONE.fill(t.tab_strip).inner_margin(egui::Margin { left: 8, right: 10, top: 0, bottom: 0 }))
+         .show(ui, |ui| {
+             crate::rtl::root(ui, |ui| {
+@@ -268,7 +268,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
+                                 let w = plan.widths.get(i).copied().unwrap_or(0.0) - 2.0;
+                                 let cut = specs.get(i).is_some_and(|sp| sp.text_w + plan.pad > w + 0.5);
+                                 let ghost = ghosts.iter().find(|(n, ..)| n == tab);
+-                                let (r, resp) = ui.allocate_exact_size(vec2(w, 30.0), if ghost.is_some() { Sense::hover() } else { Sense::click() });
++                                let (r, resp) = ui.allocate_exact_size(vec2(w, 24.0), if ghost.is_some() { Sense::hover() } else { Sense::click() });
+                                 if app.ui.keytips == crate::keytips::Phase::Tabs && ghost.is_none() {
+                                     crate::keytips::record_tab(r, tab, &app.ui.keytip_prefix, &mut app.keytip_rects);
+                                 } else if app.ui.keytips == crate::keytips::Phase::Legacy && ghost.is_none() {
+@@ -336,7 +336,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
+                                 .map(|(((tab, _), shown), _)| (tab.as_str(), *shown))
+                                 .collect();
+                             if !left_out.is_empty() {
+-                                let (r, resp) = ui.allocate_exact_size(vec2(MORE_TABS_W, 30.0), Sense::click());
++                                let (r, resp) = ui.allocate_exact_size(vec2(MORE_TABS_W, 24.0), Sense::click());
+                                 if resp.hovered() {
+                                     ui.painter().rect_filled(r.shrink2(vec2(0.0, 4.0)), 4.0, t.hover);
+                                 }
+diff --git a/crates/ui-egui/src/ribbon/review.rs b/crates/ui-egui/src/ribbon/review.rs
+index 663e71e..a76cd60 100644
+--- a/crates/ui-egui/src/ribbon/review.rs
++++ b/crates/ui-egui/src/ribbon/review.rs
+@@ -173,9 +173,7 @@ pub(super) fn developer(app: &mut WordApp, ui: &mut Ui) {
+ 
+ pub(super) fn help(app: &mut WordApp, ui: &mut Ui) {
+     group(ui, "Help", None, app, |ui, app| {
+-        big(ui, app, "help", "Help", "ui.dialog", json!({"name": "about"}), false);
+         big(ui, app, "checkForUpdates", "Check for\nUpdates…", "ui.checkForUpdates", json!({}), false);
+-        big(ui, app, "discord", "Community\nDiscord", "ui.discord", json!({}), false);
+     });
+     group(ui, "Agents", None, app, |ui, app| {
+         big(ui, app, "macros", "Commands", "ui.dialog", json!({"name": "commands"}), false);
+diff --git a/crates/ui-egui/src/tests.rs b/crates/ui-egui/src/tests.rs
+index 9d9af6b..5b7d902 100644
+--- a/crates/ui-egui/src/tests.rs
++++ b/crates/ui-egui/src/tests.rs
+@@ -590,25 +590,6 @@ fn title_and_account_buttons_work() {
+     assert!(h.query_by_label("User name:").is_some());
+ }
+ 
+-/// The Options toggle hides the community pill in the title bar; the backstage menu's
+-/// Discord link hides with it — one setting, everywhere the link shows.
+-#[test]
+-fn the_community_button_off_hides_the_backstage_discord_link_too() {
+-    use egui_kittest::kittest::Queryable;
+-    let mut a = app();
+-    a.run("ui.backstage", json!({"value": true})).unwrap();
+-    let mut h = harness(a);
+-    h.run_steps(2);
+-    assert!(h.query_by_label("Discord community").is_some(), "the community link shows by default");
+-
+-    let mut a = app();
+-    a.ui.show_discord = false;
+-    a.run("ui.backstage", json!({"value": true})).unwrap();
+-    let mut h = harness(a);
+-    h.run_steps(2);
+-    assert!(h.query_by_label("Discord community").is_none(), "the backstage link honors the same setting");
+-}
+-
+ /// File › Options › Advanced › Editing: alignment guides are a UI command, on by default and
+ /// kept between runs.
+ #[test]
+diff --git a/crates/ui-egui/src/window_ui.rs b/crates/ui-egui/src/window_ui.rs
+index f23ded2..bf44ad0 100644
+--- a/crates/ui-egui/src/window_ui.rs
++++ b/crates/ui-egui/src/window_ui.rs
+@@ -272,7 +272,6 @@ impl WordApp {
+             display_server: _,
+             status_count: _,
+             nav_pane: _,
+-            show_discord: _,
+             author: _,
+             window: _,
+             language: _,
+diff --git a/docs/folio-android.md b/docs/folio-android.md
+new file mode 100644
+index 0000000..3a1c4a9
+--- /dev/null
++++ b/docs/folio-android.md
+@@ -0,0 +1,9 @@
++# Folio Android integration
++
++2026-10-23. Local downstream fork for Folio Office 0.5.0.
++
++Folio owns document tabs, save, undo, redo and the appearance preference. The duplicate native title strip and the Account, About and community promotions are removed. Required copyright and licence notices remain in the Android distribution. Dark document colours affect only rendering; document data and exports retain their original colours.
++
++Validation: WebAssembly release build and Folio browser import/edit/export integration tests. Android APK assembly and signature verification.
++
++The primary menu row is 24 logical pixels (80% of WordCraft's previous 30), with Inter 12.5 pt and semibold selection. GridCraft and DeckCraft take the same pinned, OFL Inter family as an optional build input; model and cell fonts are unchanged.

@@ -1,0 +1,67 @@
+name: Build Lucy Builder and Android APKs
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ready:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install Flatpak and SVG support
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y flatpak librsvg2-common
+          git config --global user.name Lucy-Builder
+          git config --global user.email lucy-builder@users.noreply.github.com
+      - name: Prepare reviewed source adapters
+        run: python3 tools/current_sources.py prepare
+      - name: Check constructor regressions
+        run: |
+          python3 -m unittest discover -s tests -p 'test_*.py'
+          python3 -m unittest discover -s engine/tests -p 'test_*.py'
+          python3 -m unittest discover -s native-cad/tests -p 'test_*.py'
+          node tests/reading_menu.cjs
+      - name: Check Flatpak packaging before compilation
+        run: python3 build_flatpak.py --output "$RUNNER_TEMP/constructor-smoke"
+      - name: Compile and verify Android applications
+        run: python3 -u tools/current_sources.py build
+      - name: Upload CADCraft APK
+        if: always() && hashFiles('deliverables/CADCraft-Tablet-0.19.0-arm64-v8a.apk') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          path: deliverables/CADCraft-Tablet-0.19.0-arm64-v8a.apk
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
+      - name: Upload Lucy APK without DeckCraft
+        if: always() && hashFiles('deliverables/Lucy-WordCraft-PDFcraft-GridCraft.apk') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          path: deliverables/Lucy-WordCraft-PDFcraft-GridCraft.apk
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
+      - name: Package constructor and checksums
+        run: python3 tools/current_sources.py package
+      - name: Upload Lucy Builder Flatpak
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          path: deliverables/Lucy-Builder-2.3.1-x86_64.flatpak
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
+      - name: Upload public build records
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: build-records
+          path: |
+            deliverables/SHA256SUMS.txt
+            deliverables/*-build-info.json
+          retention-days: 7
+          if-no-files-found: error

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build Lucy's pinned Rust editor forks and install their WebAssembly assets."""
 import argparse
+from html.parser import HTMLParser
 import hashlib
 import json
 import os
@@ -65,10 +66,10 @@ def prepare_ui_fonts():
 
 
 
-def prepare_translations():
+def prepare_translations(engine=None):
     """Prepare the pinned upstream catalogs or the separate Spanish profile."""
-    spec = LOCK["translations"]
-    if LOCK.get("language_mode") == "all":
+    spec = (engine or {}).get("translations", LOCK["translations"])
+    if LOCK.get("language_mode") == "all" or (engine or {}).get("adapter_profile"):
         full = ROOT / ".cache/full-i18n" / spec["source_commit"]
         if not full.exists():
             full.parent.mkdir(parents=True, exist_ok=True)
@@ -105,32 +106,97 @@ def prepare_translations():
     return merged
 
 
-def compile_editor(engine, source, env):
+
+class RustEntries(HTMLParser):
+    def __init__(self, html):
+        super().__init__()
+        self.entries=[]
+        self.feed(html)
+    def handle_starttag(self,tag,attrs):
+        attrs=dict(attrs)
+        if tag=='link' and attrs.get('rel')=='rust':
+            self.entries.append((self.get_starttag_text(),attrs))
+
+def verified_download(url,expected,target,limit=64*1024*1024):
+    if not url.startswith('https://') or not re.fullmatch('[a-f0-9]{64}',expected):
+        raise ValueError('Unpinned resource')
+    if target.is_file() and digest(target)==expected:return
+    import time
+    target.parent.mkdir(parents=True,exist_ok=True)
+    part=target.with_name(target.name+'.part')
+    try:
+        for attempt in range(3):
+            try:
+                request=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 Lucy-Builder/2.3.0'})
+                with urllib.request.urlopen(request,timeout=60) as response,part.open('wb') as output:
+                    size=0
+                    while chunk:=response.read(1024*1024):
+                        size+=len(chunk)
+                        if size>limit:raise ValueError('Resource exceeds size limit')
+                        output.write(chunk)
+                break
+            except OSError:
+                if attempt==2:raise
+                time.sleep(2)
+        if digest(part)!=expected:raise ValueError('Resource checksum mismatch: '+target.name)
+        part.replace(target)
+    finally:part.unlink(missing_ok=True)
+
+def pdf_models(source,dist):
     import tomllib
-    lock = tomllib.loads((source / "Cargo.lock").read_text())
-    bindgen_version = next(p["version"] for p in lock["package"] if p["name"] == "wasm-bindgen")
-    bindgen = tool("wasm-bindgen", bindgen_version)
-    name = engine["id"] + "-web"
-    subprocess.run(["cargo", "build", "--locked", "--release", "--target", "wasm32-unknown-unknown", "--manifest-path", f"apps/{name}/Cargo.toml", "--bin", name], cwd=source, env=env, check=True)
-    raw = Path(env["CARGO_TARGET_DIR"]) / "wasm32-unknown-unknown/release" / (name + ".wasm")
-    dist = source / "dist/folio-android"
-    if dist.exists():
-        shutil.rmtree(dist)
-    dist.mkdir(parents=True)
-    subprocess.run([bindgen, "--target", "web", "--no-typescript", "--weak-refs", "--out-dir", str(dist), "--out-name", name, str(raw)], env=env, check=True)
-    wasm = dist / (name + "_bg.wasm")
-    if env.get("FOLIO_OPTIMIZE_WASM") == "1":
-        optimizer = tool("wasm-opt", "128")
-        optimized = dist / (name + "_optimized.wasm")
-        subprocess.run([optimizer, "-Oz", "--all-features", str(wasm), "-o", str(optimized)], env={**env, "BINARYEN_CORES": "2"}, check=True)
+    wanted={'text-detection.onnx','text-recognition.onnx'}
+    records=[r for r in tomllib.loads((source/'ATTRIBUTION.toml').read_text())['fetched'] if r.get('file') in wanted]
+    if {r['file'] for r in records}!=wanted:raise ValueError('Missing pinned OCR models')
+    dest=dist/'models';dest.mkdir()
+    for r in records:
+        cache=ROOT/'.cache/models'/r['sha256']/r['file']
+        verified_download(r['url'],r['sha256'],cache)
+        shutil.copyfile(cache,dest/r['file'])
+        license_name='LICENSE-'+r['licence_sha256'][:12]+'.txt';license_path=ROOT/'.cache/models'/license_name
+        verified_download(r['licence_url'],r['licence_sha256'],license_path,1024*1024)
+        shutil.copyfile(license_path,dest/license_name)
+    (dest/'ATTRIBUTION.json').write_text(json.dumps(records,ensure_ascii=False,indent=2)+'\n')
+
+def compile_binary(name,manifest,source,env,bindgen,dist):
+    subprocess.run(['cargo','build','--locked','--release','--target','wasm32-unknown-unknown','--manifest-path',str(manifest),'--bin',name],cwd=source,env=env,check=True)
+    raw=Path(env['CARGO_TARGET_DIR'])/'wasm32-unknown-unknown/release'/(name+'.wasm')
+    subprocess.run([bindgen,'--target','web','--no-typescript','--weak-refs','--out-dir',str(dist),'--out-name',name,str(raw)],env=env,check=True)
+    wasm=dist/(name+'_bg.wasm')
+    if env.get('FOLIO_OPTIMIZE_WASM')=='1':
+        optimizer=tool('wasm-opt','128');optimized=dist/(name+'_optimized.wasm')
+        subprocess.run([optimizer,'-Oz','--all-features',str(wasm),'-o',str(optimized)],env={**env,'BINARYEN_CORES':'2'},check=True)
         optimized.replace(wasm)
-    html = (source / f"apps/{name}/index.html").read_text()
-    html = re.sub(r'<link\b[^>]*rel="icon"[^>]*>', "", html)
-    bootstrap = f'''<script type="module">\nimport init, * as bindings from './{name}.js';\nconst wasm = await init({{module_or_path:'./{name}_bg.wasm'}});\nwindow.wasmBindings = bindings;\ndispatchEvent(new CustomEvent("TrunkApplicationStarted", {{detail:{{wasm}}}}));\n</script>'''
-    html, count = re.subn(r'<link\b[^>]*rel="rust"[^>]*>', lambda _: bootstrap, html)
-    if count != 1:
-        raise ValueError("Expected exactly one Rust WebAssembly entry point")
-    (dist / "index.html").write_text(html)
+
+def compile_editor(engine,source,env):
+    import tomllib
+    lock=tomllib.loads((source/'Cargo.lock').read_text())
+    version=next(p['version'] for p in lock['package'] if p['name']=='wasm-bindgen')
+    bindgen=tool('wasm-bindgen',version);name=engine['id']+'-web';page=source/f'apps/{name}/index.html'
+    html=page.read_text();entries=RustEntries(html).entries;main=[e for e in entries if e[1].get('data-type')!='worker']
+    if len(main)!=1:raise ValueError('Expected exactly one Rust WebAssembly entry point')
+    dist=source/'dist/folio-android'
+    if dist.exists():shutil.rmtree(dist)
+    dist.mkdir(parents=True)
+    compile_binary(name,f'apps/{name}/Cargo.toml',source,env,bindgen,dist)
+    seen={name}
+    for tag,attrs in entries:
+        if attrs.get('data-type')!='worker':continue
+        manifest=(page.parent/attrs.get('href','')).resolve()
+        if not manifest.is_relative_to(source.resolve()) or manifest.name!='Cargo.toml':raise ValueError('Worker manifest outside the selected sources')
+        worker=tomllib.loads(manifest.read_text())['package']['name']
+        if not re.fullmatch('[a-z0-9][a-z0-9_-]*',worker) or worker in seen:raise ValueError('Invalid or duplicate worker')
+        seen.add(worker);compile_binary(worker,manifest,source,env,bindgen,dist)
+        glue=dist/(worker+'.js');wasm=dist/(worker+'_bg.wasm');stamp=hashlib.sha256(glue.read_bytes()+wasm.read_bytes()).hexdigest()[:16]
+        stem=worker+'-'+stamp;text=glue.read_text();old=worker+'_bg.wasm'
+        if text.count(old)!=1:raise ValueError('Unexpected worker loader')
+        glue.write_text(text.replace(old,stem+'_bg.wasm'));glue.rename(dist/(stem+'.js'));wasm.rename(dist/(stem+'_bg.wasm'))
+        loader=stem+'_loader.js';(dist/loader).write_text(f"import init from './{stem}.js';\nawait init();\n")
+        if '</head>' not in html:raise ValueError('Worker page has no head')
+        html=html.replace(tag,'',1).replace('</head>',f'<meta name="{worker}" content="./{loader}" />\n</head>',1)
+        if worker=='pdfcraft-ocr-worker':pdf_models(source,dist)
+    html=re.sub(r'<link\b[^>]*rel="icon"[^>]*>','',html)
+    bootstrap=f'''<script type="module">\nimport init, * as bindings from './{name}.js';\nconst wasm = await init({{module_or_path:'./{name}_bg.wasm'}});\nwindow.wasmBindings = bindings;\ndispatchEvent(new CustomEvent("TrunkApplicationStarted", {{detail:{{wasm}}}}));\n</script>'''
+    (dist/'index.html').write_text(html.replace(main[0][0],bootstrap,1))
 
 
 def digest(path):
@@ -189,7 +255,8 @@ def install(engine, source):
         if not path.is_file():
             continue
         relative = path.relative_to(dist)
-        if relative.as_posix() != "index.html" and path.suffix not in {".wasm", ".js"}:
+        model_asset = relative.parts[0] == 'models' and path.suffix in {'.onnx', '.txt', '.json'}
+        if relative.as_posix() != "index.html" and path.suffix not in {".wasm", ".js"} and not model_asset:
             continue
         data = path.read_bytes()
         if path.name == "index.html":
@@ -228,7 +295,6 @@ def main():
         env["FOLIO_OPTIMIZE_WASM"] = "1"
     if not args.install_only:
         env["FOLIO_UI_FONT_DIR"] = str(prepare_ui_fonts())
-        env["CRAFT_I18N_DIR"] = str(prepare_translations())
         env["CRAFT_I18N_REQUIRED"] = "1"
     fonts = args.source_root.resolve() / "craft-fonts"
     if not args.install_only:
@@ -264,6 +330,7 @@ def main():
             head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True).strip()
             if head != engine["source_commit"]:
                 raise ValueError("Editor checkout is not pinned to the required commit")
+            env["CRAFT_I18N_DIR"] = str(prepare_translations(engine))
             prune_source(engine, source)
             actual_patch = source_diff(engine, source)
             if actual_patch != (PATCHES / (engine["id"] + ".patch")).read_bytes():

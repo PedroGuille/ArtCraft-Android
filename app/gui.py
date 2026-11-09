@@ -6,6 +6,7 @@ import gi
 gi.require_version('Gtk','4.0');gi.require_version('Adw','1')
 from gi.repository import Gtk,Adw,Gio,GLib,Gdk
 from .catalog import APPS,BY_ID,OFFICE
+from .revisions import MODES,LABELS,selected_index
 from .core import ROOT,legacy
 
 APP_ID='io.github.pedroguille.LucyBuilder'
@@ -36,7 +37,7 @@ class BuilderWindow(Adw.ApplicationWindow):
    row=Gtk.ListBoxRow();row.page_name=key;box=Gtk.Box(spacing=12);box.set_margin_top(10);box.set_margin_bottom(10);box.set_margin_start(10);box.set_margin_end(10);box.append(Gtk.Image.new_from_icon_name(icon));box.append(label(title));row.set_child(box);self.navigation.append(row)
   sidebar.append(self.navigation);spacer=Gtk.Box(vexpand=True);sidebar.append(spacer)
   sidebar.append(label('Local en tu PC','heading'));sidebar.append(label('Fuentes, herramientas y firmas\nen una caché reutilizable.','dim-label'))
-  sidebar.append(label('Versión 2.1.1','caption'));split.append(sidebar);split.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+  sidebar.append(label('Versión 2.3.1','caption'));split.append(sidebar);split.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
   self.stack=Gtk.Stack(hexpand=True,vexpand=True,transition_type=Gtk.StackTransitionType.CROSSFADE)
   split.append(self.stack)
   self.stack.add_named(self.applications_page(),'applications');self.stack.add_named(self.lucy_page(),'lucy');self.stack.add_named(self.history_page(),'history');self.stack.add_named(self.settings_page(),'settings')
@@ -95,9 +96,9 @@ class BuilderWindow(Adw.ApplicationWindow):
   out=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=8);out.append(label('Carpeta de resultados','heading'))
   line=Gtk.Box(spacing=8);downloads=GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_DOWNLOAD) or str(Path.home()/'Downloads')
   self.output_entry=Gtk.Entry(text=self.settings.get('output',str(Path(downloads)/'Lucy-Builds')),hexpand=True);line.append(self.output_entry);line.append(self.action('Elegir…',lambda _:self.choose_folder()));out.append(line);box.append(out)
-  options=Gtk.Box(spacing=20);left=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=8);left.append(label('Fuentes a compilar','heading'));self.revisions=Gtk.DropDown.new_from_strings(['Versiones base guardadas','Última versión publicada','Desarrollo · main de GitHub']);self.revisions.set_selected(int(self.settings.get('revision_mode',0)) if self.settings.get('revision_schema')==2 else (2 if self.settings.get('revision_mode')==0 else 0));left.append(self.revisions);options.append(left)
+  options=Gtk.Box(spacing=20);left=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=8);left.append(label('Fuentes a compilar','heading'));self.revisions=Gtk.DropDown.new_from_strings(list(LABELS));self.revisions.set_selected(selected_index(self.settings));left.append(self.revisions);options.append(left)
   right=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=8);right.append(label('Trabajos simultáneos','heading'));self.jobs=Gtk.SpinButton.new_with_range(1,32,1);self.jobs.set_value(int(self.settings.get('jobs',legacy.default_jobs())));right.append(self.jobs);options.append(right);box.append(options)
-  box.append(label('Las versiones base quedan fijadas por commit y permiten volver atrás. Una publicación nueva o main puede requerir actualizar su adaptador. No se cambia de versión automáticamente si falla.','caption',True))
+  box.append(label('Las revisadas fijan las fuentes actuales de los cuatro editores y CADCraft. El resto conserva sus referencias base. Las versiones anteriores siguen disponibles. Una publicación nueva o main puede requerir actualizar su adaptador. No se cambia de versión automáticamente si falla.','caption',True))
   versions=json.loads((ROOT/'app/verified.json').read_text());box.append(label('Base fija: '+', '.join(BY_ID[n].name+' '+versions.get('versions',{}).get(n,h[:8]) for n,h in versions['heads'].items()),'caption',True))
   box.append(label('Idiomas de las aplicaciones generadas','heading'));self.languages=Gtk.DropDown.new_from_strings(['Todos los idiomas de origen','Perfil anterior · solo español']);self.languages.set_selected(int(self.settings.get('language_mode',0)));box.append(self.languages)
   box.append(label('Se restauran los idiomas y selectores de cada proyecto. DeckCraft ofrece inglés en su interfaz original; el perfil anterior conserva su adaptación española. Los idiomas disponibles dependen de la aplicación.','caption',True))
@@ -168,7 +169,7 @@ class BuilderWindow(Adw.ApplicationWindow):
   dialog.save(self,None,done)
 
  def persist_settings(self):
-  self.settings={'output':self.output_entry.get_text(),'jobs':int(self.jobs.get_value()),'revision_mode':self.revisions.get_selected(),'revision_schema':2,'language_mode':self.languages.get_selected(),'accept_sdk_license':self.accept_sdk.get_active()};self.save('settings.json',self.settings)
+  self.settings={'output':self.output_entry.get_text(),'jobs':int(self.jobs.get_value()),'revision_mode':self.revisions.get_selected(),'revision_schema':3,'language_mode':self.languages.get_selected(),'accept_sdk_license':self.accept_sdk.get_active()};self.save('settings.json',self.settings)
  def start(self,mode,download=False):
   if self.process:return
   ids=[name for name,check in (self.office_checks if mode=='lucy' else self.cards).items() if check.get_active()]
@@ -177,7 +178,7 @@ class BuilderWindow(Adw.ApplicationWindow):
   output=self.output_entry.get_text().strip()
   if not output:self.notify('Elegí una carpeta de resultados.');self.switch('settings');return
   self.persist_settings();job_id=uuid.uuid4().hex
-  job={'id':job_id,'mode':mode,'apps':ids,'download_only':download,'output':output,'jobs':int(self.jobs.get_value()),'revision_mode':['verified','release','main'][self.revisions.get_selected()],'language_mode':'all' if self.languages.get_selected()==0 else 'es','accept_sdk_license':self.accept_sdk.get_active(),'import_key':self.key_entry.get_text().strip()}
+  job={'id':job_id,'mode':mode,'apps':ids,'download_only':download,'output':output,'jobs':int(self.jobs.get_value()),'revision_mode':MODES[self.revisions.get_selected()],'language_mode':'all' if self.languages.get_selected()==0 else 'es','accept_sdk_license':self.accept_sdk.get_active(),'import_key':self.key_entry.get_text().strip()}
   requests=self.state/'requests';requests.mkdir(exist_ok=True);path=requests/(job_id+'.json');legacy.save_json(path,job)
   env=dict(os.environ)
   if job['import_key']:env['LUCY_IMPORT_PASSWORD']=self.key_password.get_text() or 'android'
