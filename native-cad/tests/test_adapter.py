@@ -211,7 +211,7 @@ class AdapterTest(unittest.TestCase):
         original = (self.output / ".tablet/upstream-Cargo.lock").read_bytes()
         (self.output / "Cargo.lock").write_bytes(original)
 
-        def minimal_resolution(*args):
+        def minimal_resolution(*args, **kwargs):
             (self.output / "Cargo.lock").write_bytes(original + b'\n[[package]]\nname = "new-android-only"\nversion = "1.0.0"\n')
 
         with mock.patch.object(tablet, "run_logged", side_effect=minimal_resolution):
@@ -225,7 +225,7 @@ class AdapterTest(unittest.TestCase):
         report["lock_status"] = "needs_android_resolution"
         original = (self.output / ".tablet/upstream-Cargo.lock").read_bytes()
 
-        def invalid_resolution(*args):
+        def invalid_resolution(*args, **kwargs):
             (self.output / "Cargo.lock").write_bytes(b'version=4\n[[package]]\nname="other"\nversion="1.0.0"\n')
 
         with mock.patch.object(tablet, "run_logged", side_effect=invalid_resolution):

@@ -18,7 +18,7 @@
     "buildsystem": "simple",
     "build-commands": [
       "install -d /app/lib/lucy-builder",
-      "cp -a app engine native-cad README.md LICENSE /app/lib/lucy-builder/",
+      "cp -a app engine native-cad README.md LICENSE VALIDACION-2.3.0.md /app/lib/lucy-builder/",
       "install -Dm755 flatpak/lucy-builder /app/bin/lucy-builder",
       "install -Dm644 flatpak/io.github.pedroguille.LucyBuilder.desktop /app/share/applications/io.github.pedroguille.LucyBuilder.desktop",
       "install -Dm644 flatpak/io.github.pedroguille.LucyBuilder.metainfo.xml /app/share/metainfo/io.github.pedroguille.LucyBuilder.metainfo.xml",

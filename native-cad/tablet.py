@@ -383,14 +383,14 @@ def load_prepared(root: Path, kit: Path = KIT) -> tuple[dict, dict]:
     return adapter, report
 
 
-def run_logged(command: list[str], root: Path, env: dict, log: Path) -> None:
+def run_logged(command: list[str], root: Path, env: dict, log: Path, *, discard_stdout: bool = False) -> None:
     log.parent.mkdir(parents=True, exist_ok=True)
     with log.open("a", encoding="utf-8") as stream:
         stream.write("\n$ " + " ".join(command) + "\n")
         stream.flush()
-        with subprocess.Popen(command, cwd=root, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        with subprocess.Popen(command, cwd=root, env=env, stdout=subprocess.DEVNULL if discard_stdout else subprocess.PIPE, stderr=subprocess.PIPE if discard_stdout else subprocess.STDOUT,
                               text=True, encoding="utf-8", errors="replace", bufsize=1) as child:
-            for line in child.stdout:
+            for line in (child.stderr if discard_stdout else child.stdout):
                 print(line, end="", flush=True)
                 stream.write(line)
             code = child.wait()
@@ -406,7 +406,7 @@ def ensure_locked(root: Path, report: dict, env: dict, log: Path) -> None:
     if report["lock_status"] != "needs_android_resolution":
         return
     before = (root / ".tablet/upstream-Cargo.lock").read_bytes()
-    run_logged(["cargo", "metadata", "--format-version", "1"], root, env, log)
+    run_logged(["cargo", "metadata", "--format-version", "1"], root, env, log, discard_stdout=True)
     removed = package_keys(before) - package_keys((root / "Cargo.lock").read_bytes())
     if removed:
         (root / ".tablet/rejected-Cargo.lock").write_bytes((root / "Cargo.lock").read_bytes())

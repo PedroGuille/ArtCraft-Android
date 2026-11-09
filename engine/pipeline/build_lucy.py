@@ -132,11 +132,14 @@ def apply_adapter(engine, project, sources):
         if name == 'deckcraft':engine['source_prune'] = []
     # git can reconstruct each baseline blob from the fetched base commit. With
     # --3way it preserves non-overlapping upstream edits; conflicts stop the job.
-    result = subprocess.run(['git', 'apply', '--3way', '--index', str(patch)], cwd=source,
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    candidate = compatibility.profile(engine['id'], engine.get('language_mode', 'es'))
+    # An exact reviewed adapter takes priority: a clean old merge can still use removed APIs.
+    exact_reviewed = candidate is not None and candidate['base_commit'] == engine['source_commit']
+    result = None if exact_reviewed else subprocess.run(
+        ['git', 'apply', '--3way', '--index', str(patch)], cwd=source,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     reviewed = False
-    if result.returncode:
-        candidate = compatibility.profile(engine['id'], engine.get('language_mode', 'es'))
+    if exact_reviewed or result.returncode:
         if candidate is not None:
             # A failed merge only touched this new, builder-owned checkout. Reset
             # it before trying the separately reviewed adapter; never build markers.
@@ -155,7 +158,7 @@ def apply_adapter(engine, project, sources):
             if result.returncode == 0:
                 reviewed = True
                 engine['adapter_base_commit'] = base
-                engine['adapter_profile'] = '2026-11-06'
+                engine['adapter_profile'] = candidate.get('reviewed_at', '2026-11-06')
                 engine['source_prune'] = list(candidate['source_prune'])
                 if engine.get('language_mode', 'es') == 'es':
                     compatibility.spanish_only(source, engine['id'])
@@ -303,6 +306,13 @@ def compile_prepared(snapshot, name, work, cargo_target=None):
     json_file(output / 'engine.json', engine)
     copy_notice_tree(source, output / 'notices' / name)
     cargo_notices(source, name, output / 'notices', env)
+    models = output / 'engine/models'
+    if models.is_dir():
+        for path in sorted(models.iterdir()):
+            if path.suffix in {'.txt', '.json'}:
+                target = output / 'notices/pdfcraft-ocr-models' / path.name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(path, target)
     fonts = sources / 'craft-fonts'
     copy_notices(fonts, output / 'notices/craft-fonts')
     for p in fonts.rglob('*'):

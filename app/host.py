@@ -123,7 +123,7 @@ def assemble(snapshot,artifacts,work,sdk,mode):
  for name in OFFICE:
   if name not in snapshot['heads']:shutil.rmtree(project/'third_party'/name,ignore_errors=True)
  manifest=project/'app/src/main/AndroidManifest.xml';tree=ET.parse(manifest);tree.getroot().set(NS+'versionName',snapshot['version_name']);tree.getroot().set(NS+'versionCode',str(snapshot['version_code']));tree.write(manifest,encoding='utf-8',xml_declaration=True)
- info={'schema':2,'builder':'Lucy Builder 2.2.0','name':title,'package_name':package,'mode':mode,'source_selection':snapshot.get('mode','main'),'language_mode':snapshot['engine_lock'].get('language_mode','upstream'),'selection':list(snapshot['heads']),
+ info={'schema':2,'builder':'Lucy Builder 2.3.0','name':title,'package_name':package,'mode':mode,'source_selection':snapshot.get('mode','main'),'language_mode':snapshot['engine_lock'].get('language_mode','upstream'),'selection':list(snapshot['heads']),
        'version_name':snapshot['version_name'],'version_code':snapshot['version_code'],'heads':snapshot['heads'],'engines':lock['engines'],
        'compiler':snapshot['compiler'],'fonts':lock['fonts'],'translations':lock['translations'],'built_at':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())}
  pipeline.json_file(project/'third_party/SOURCES.json',info)

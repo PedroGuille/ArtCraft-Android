@@ -1,8 +1,8 @@
 diff --git a/Cargo.lock b/Cargo.lock
-index b4059e6..74cf15e 100644
+index 4a32c82..d9253b6 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
-@@ -1310,6 +1310,7 @@ dependencies = [
+@@ -1321,6 +1321,7 @@ dependencies = [
   "egui",
   "egui_extras",
   "egui_kittest",
@@ -11,7 +11,7 @@ index b4059e6..74cf15e 100644
   "serde",
   "serde_json",
 diff --git a/Cargo.toml b/Cargo.toml
-index ab2b742..003e890 100644
+index e11a5bb..2151e2a 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -104,8 +104,8 @@ debug = "line-tables-only"
@@ -1256,7 +1256,7 @@ index 221948c..c7ba635 100644
  }
  
 diff --git a/crates/engine/src/cmd/shape.rs b/crates/engine/src/cmd/shape.rs
-index a447a20..f4c1892 100644
+index 78b6204..144462c 100644
 --- a/crates/engine/src/cmd/shape.rs
 +++ b/crates/engine/src/cmd/shape.rs
 @@ -31,7 +31,7 @@ pub fn specs() -> Vec<CommandSpec> {
@@ -2007,10 +2007,10 @@ index 8b262f1..6c6ecd6 100644
 +    Ok(())
  }
 diff --git a/crates/ui-egui/src/app.rs b/crates/ui-egui/src/app.rs
-index 178ab24..3c40d83 100644
+index 8cc5325..6f6c43e 100644
 --- a/crates/ui-egui/src/app.rs
 +++ b/crates/ui-egui/src/app.rs
-@@ -205,6 +205,20 @@ impl SlideApp {
+@@ -213,6 +213,20 @@ impl SlideApp {
      /// opening/inbox results, screenshot completions/deadlines, AutoRecover pacing and media
      /// clocks. UI events are handled in [`Self::ui`], where a forced hidden paint also arrives.
      pub fn logic(&mut self, ctx: &egui::Context) {
@@ -2031,7 +2031,7 @@ index 178ab24..3c40d83 100644
          if !Self::root_viewport_admitted(ctx) {
              log::debug!("ignoring SlideApp::logic for render-only viewport {:?}", ctx.viewport_id());
              return;
-@@ -308,7 +322,6 @@ impl SlideApp {
+@@ -316,7 +330,6 @@ impl SlideApp {
          self.sync_backstage();
          self.keyboard(&ctx);
          self.sync_backstage();
@@ -5586,7 +5586,7 @@ index 7d2ab7a..1983cf5 100644
      let r = small_button(ui, icon, label, en, false);
      if r.clicked() {
 diff --git a/crates/ui-egui/src/ribbon/animations.rs b/crates/ui-egui/src/ribbon/animations.rs
-index d438016..c9a5c5c 100644
+index daa71ea..d1b3648 100644
 --- a/crates/ui-egui/src/ribbon/animations.rs
 +++ b/crates/ui-egui/src/ribbon/animations.rs
 @@ -16,7 +16,7 @@ pub(super) fn animations(app: &mut SlideApp, ui: &mut Ui) {
@@ -5909,7 +5909,7 @@ index 4129106..b38a880 100644
      }
  }
 diff --git a/crates/ui-egui/src/ribbon/home.rs b/crates/ui-egui/src/ribbon/home.rs
-index 1c27dc9..841f062 100644
+index 267f161..c695142 100644
 --- a/crates/ui-egui/src/ribbon/home.rs
 +++ b/crates/ui-egui/src/ribbon/home.rs
 @@ -10,21 +10,21 @@ use super::{
@@ -8930,7 +8930,7 @@ index 896f904..381a641 100644
                      }
                  });
 diff --git a/crates/ui-egui/src/widgets.rs b/crates/ui-egui/src/widgets.rs
-index 5bfbf04..fef35c6 100644
+index 238259e..f781d57 100644
 --- a/crates/ui-egui/src/widgets.rs
 +++ b/crates/ui-egui/src/widgets.rs
 @@ -28,6 +28,7 @@ fn bg(ui: &Ui, r: &Response, selected: bool, t: &Tokens) -> Option<Color32> {
@@ -8996,7 +8996,7 @@ index 5bfbf04..fef35c6 100644
      let t = Tokens::get(ui.ctx());
      let (rect, resp) = ui.allocate_exact_size(vec2(34.0, 22.0), Sense::hover());
      let main = ui.interact(Rect::from_min_size(rect.min, vec2(23.0, 22.0)), resp.id.with("m"), if enabled { Sense::click() } else { Sense::hover() });
-@@ -384,7 +392,7 @@ pub fn color_grid(ui: &mut Ui, scheme: &ColorScheme, none_label: Option<&str>) -
+@@ -388,7 +396,7 @@ pub fn color_grid(ui: &mut Ui, scheme: &ColorScheme, none_label: Option<&str>) -
      let t = Tokens::get(ui.ctx());
      let mut out = None;
      ui.set_min_width(220.0);
@@ -9005,7 +9005,7 @@ index 5bfbf04..fef35c6 100644
      let slots = [
          SchemeSlot::Lt1,
          SchemeSlot::Dk1,
-@@ -446,7 +454,7 @@ pub fn color_grid(ui: &mut Ui, scheme: &ColorScheme, none_label: Option<&str>) -
+@@ -450,7 +458,7 @@ pub fn color_grid(ui: &mut Ui, scheme: &ColorScheme, none_label: Option<&str>) -
          }
      });
      ui.add_space(4.0);
@@ -9014,7 +9014,7 @@ index 5bfbf04..fef35c6 100644
      ui.horizontal(|ui| {
          ui.spacing_mut().item_spacing.x = 3.0;
          for (c, name) in deckcraft_color::STANDARD_COLORS {
-@@ -465,7 +473,7 @@ pub fn color_grid(ui: &mut Ui, scheme: &ColorScheme, none_label: Option<&str>) -
+@@ -469,7 +477,7 @@ pub fn color_grid(ui: &mut Ui, scheme: &ColorScheme, none_label: Option<&str>) -
      let id = ui.scope_id().with("hex");
      let mut hex: String = ui.data_mut(|d| d.get_temp::<String>(id).unwrap_or_default());
      ui.horizontal(|ui| {
@@ -9023,7 +9023,7 @@ index 5bfbf04..fef35c6 100644
          let r = ui.add(egui::TextEdit::singleline(&mut hex).desired_width(70.0).hint_text("RRGGBB"));
          if r.lost_focus()
              && ui.input(|i| i.key_pressed(egui::Key::Enter))
-@@ -475,7 +483,7 @@ pub fn color_grid(ui: &mut Ui, scheme: &ColorScheme, none_label: Option<&str>) -
+@@ -479,7 +487,7 @@ pub fn color_grid(ui: &mut Ui, scheme: &ColorScheme, none_label: Option<&str>) -
          }
      });
      ui.data_mut(|d| d.insert_temp(id, hex));
@@ -9032,7 +9032,7 @@ index 5bfbf04..fef35c6 100644
          crate::eyedropper::request(ui.ctx());
          ui.close();
      }
-@@ -517,6 +525,7 @@ pub fn gallery(
+@@ -521,6 +529,7 @@ pub fn gallery(
  /// A number field with up/down steppers, named by the visible label of its row. Returns the new
  /// value when committed.
  pub fn spinner(ui: &mut Ui, id: &str, label: &str, value: f64, step: f64, suffix: &str, width: f32) -> Option<f64> {
@@ -9040,7 +9040,7 @@ index 5bfbf04..fef35c6 100644
      let t = Tokens::get(ui.ctx());
      let key = ui.scope_id().with(id);
      let mut text: String = ui.data_mut(|d| d.get_temp::<String>(key)).unwrap_or_else(|| fmt_num(value, suffix));
-@@ -537,9 +546,9 @@ pub fn spinner(ui: &mut Ui, id: &str, label: &str, value: f64, step: f64, suffix
+@@ -541,9 +550,9 @@ pub fn spinner(ui: &mut Ui, id: &str, label: &str, value: f64, step: f64, suffix
          }
          let (rect, _) = ui.allocate_exact_size(vec2(12.0, 22.0), Sense::hover());
          let up = ui.interact(Rect::from_min_max(rect.min, pos2(rect.max.x, rect.center().y)), key.with("up"), Sense::click());
@@ -9052,7 +9052,7 @@ index 5bfbf04..fef35c6 100644
          let p = ui.painter();
          let c = rect.center();
          p.line_segment([pos2(c.x - 3.0, c.y - 3.0), pos2(c.x, c.y - 6.0)], Stroke::new(1.0, t.text_dim));
-@@ -573,6 +582,7 @@ pub fn text_draft(stored: Option<(String, String)>, current: &str) -> String {
+@@ -577,6 +586,7 @@ pub fn text_draft(stored: Option<(String, String)>, current: &str) -> String {
  
  /// Section header inside panes.
  pub fn section(ui: &mut Ui, title: &str, open: bool) -> bool {
@@ -9060,7 +9060,7 @@ index 5bfbf04..fef35c6 100644
      let t = Tokens::get(ui.ctx());
      let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click());
      let p = ui.painter();
-@@ -589,6 +599,7 @@ pub fn section(ui: &mut Ui, title: &str, open: bool) -> bool {
+@@ -593,6 +603,7 @@ pub fn section(ui: &mut Ui, title: &str, open: bool) -> bool {
  
  /// A button with an optional label and a painted dropdown chevron (the UI font has no ▾).
  pub fn drop_button(ui: &mut Ui, label: &str, size: egui::Vec2, enabled: bool) -> egui::Response {

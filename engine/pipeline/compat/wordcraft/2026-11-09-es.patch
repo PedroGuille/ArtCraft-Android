@@ -1,5 +1,5 @@
 diff --git a/Cargo.toml b/Cargo.toml
-index 5e126cf..2542f6d 100644
+index 993a15f..e180bc4 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -128,8 +128,8 @@ debug = "line-tables-only"
@@ -71,10 +71,10 @@ index 3339e18..b376e27 100644
 +    }
 +}
 diff --git a/crates/ui-egui/src/app.rs b/crates/ui-egui/src/app.rs
-index 5dcd822..88a74f5 100644
+index b2533e5..9851302 100644
 --- a/crates/ui-egui/src/app.rs
 +++ b/crates/ui-egui/src/app.rs
-@@ -232,6 +232,28 @@ impl WordApp {
+@@ -234,6 +234,28 @@ impl WordApp {
          // #2726: egui's AccessKit update must carry the focused node in its node list; a frame
          // that drops it panics in `accesskit_consumer` and closes the window (see `a11y::FocusGuard`).
          ctx.add_plugin(super::a11y::FocusGuard);
@@ -104,7 +104,7 @@ index 5dcd822..88a74f5 100644
          crate::language_packs::tick(self);
          let lang = i18n::Lang::from_pref(&self.ui.language);
 diff --git a/crates/ui-egui/src/app/commands.rs b/crates/ui-egui/src/app/commands.rs
-index 349cd8c..0cde0bb 100644
+index 568c7ef..c9037fb 100644
 --- a/crates/ui-egui/src/app/commands.rs
 +++ b/crates/ui-egui/src/app/commands.rs
 @@ -28,6 +28,13 @@ impl WordApp {
@@ -121,7 +121,7 @@ index 349cd8c..0cde0bb 100644
          // Comment text still being typed is written first, so a save or export has it and a
          // close, New or Open counts it as a change (#1348). A draft the document refuses is not
          // part of it: saving and exporting go on without it (the refusal stays on the status
-@@ -763,10 +770,7 @@ impl WordApp {
+@@ -769,10 +776,7 @@ impl WordApp {
                          .into(),
                  ));
              }
@@ -133,19 +133,19 @@ index 349cd8c..0cde0bb 100644
              "ui.caretAnimation" => {
                  // File › Options › Advanced › Animation: `value` true or false turns the caret's
                  // glide and fading blink on or off; no value reads it.
-@@ -1064,7 +1068,6 @@ pub(crate) fn works_without_document(id: &str) -> bool {
+@@ -1116,7 +1120,6 @@ pub(crate) fn works_without_document(id: &str) -> bool {
              | "ui.printCancel"
              | "ui.fileBrowser"
              | "ui.makeDefaultApp"
 -            | "ui.discord"
              | "ui.caretAnimation"
              | "ui.startScreen"
-             | "ui.displayServer"
+             | "ui.recentRemove"
 diff --git a/crates/ui-egui/src/app/frame.rs b/crates/ui-egui/src/app/frame.rs
-index 5541598..446e4d9 100644
+index cd52541..ed8b421 100644
 --- a/crates/ui-egui/src/app/frame.rs
 +++ b/crates/ui-egui/src/app/frame.rs
-@@ -52,7 +52,6 @@ impl WordApp {
+@@ -71,7 +71,6 @@ impl WordApp {
              backstage::show(self, ui);
          } else if !self.has_document() {
              // No document open (#1129): the ribbon greyed out but for Help, and no page.
@@ -153,7 +153,7 @@ index 5541598..446e4d9 100644
              ribbon::show(self, ui);
              chrome::status_bar(self, ui);
              egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |_| {});
-@@ -63,7 +62,6 @@ impl WordApp {
+@@ -82,7 +81,6 @@ impl WordApp {
              if screen != chrome::Screen::Normal {
                  chrome::screen_bar(self, ui, screen);
              } else {
@@ -162,15 +162,33 @@ index 5541598..446e4d9 100644
                      return;
                  }
 diff --git a/crates/ui-egui/src/backstage.rs b/crates/ui-egui/src/backstage.rs
-index a1605c6..e27eac0 100644
+index a17b0a4..afd4ccd 100644
 --- a/crates/ui-egui/src/backstage.rs
 +++ b/crates/ui-egui/src/backstage.rs
-@@ -154,24 +154,6 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
+@@ -55,17 +55,6 @@ fn back_chevron_c(band_min_x: f32, center_y: f32, fullscreen: bool, content_left
+     pos2(band_min_x + x, center_y)
+ }
+ 
+-/// The bottom of the backstage menu: About, and the community link unless the user turned the
+-/// community button off — the title bar pill honors the same setting, so the menu hides the
+-/// link with it.
+-fn bottom_links(app: &WordApp) -> Vec<(&'static str, &'static str)> {
+-    let mut links = vec![("About", "about")];
+-    if app.ui.show_discord {
+-        links.push(("Discord community", "discord"));
+-    }
+-    links
+-}
+-
+ /// Draws the Backstage side menu and the active page. Without a document only the Home, New, Open
+ /// and Options pages work, and it handles Back, Escape, Save, Save As and Close routing.
+ pub fn show(app: &mut WordApp, ui: &mut Ui) {
+@@ -165,24 +154,6 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                      go_to_page(app, id);
                  }
              }
 -            ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
--                for (label, id) in [("About", "about"), ("Discord community", "discord")] {
+-                for (label, id) in bottom_links(app) {
 -                    let (r, resp) = ui.allocate_exact_size(vec2(200.0, 32.0), Sense::click());
 -                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), tl!(label)));
 -                    if resp.hovered() {
@@ -188,10 +206,10 @@ index a1605c6..e27eac0 100644
 -                }
 -            });
          });
-     egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.ribbon).inner_margin(egui::Margin::symmetric(40, 30))).show(ui, |ui| {
-         // The Print page fills the pane and scrolls its settings and its preview itself (#1156).
+     egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.ribbon).inner_margin(egui::Margin::symmetric(0, 30))).show(ui, |ui| {
+         // The side padding sits inside the pages, so the scroll area reaches the window's edge.
 diff --git a/crates/ui-egui/src/chrome.rs b/crates/ui-egui/src/chrome.rs
-index eb7b0ca..e9c8643 100644
+index f370ddb..f4ed25f 100644
 --- a/crates/ui-egui/src/chrome.rs
 +++ b/crates/ui-egui/src/chrome.rs
 @@ -62,42 +62,6 @@ pub(crate) fn qat_enabled(app: &WordApp, id: &str) -> bool {
@@ -414,13 +432,13 @@ index eb7b0ca..e9c8643 100644
 -        });
 -}
  
- /// Search ("Tell me"): a box that opens command search. In the title bar, and in the Commands bar
- /// of Full Screen (#1678).
+ /// The title bar's Search box while it is typed in (#5398): the query, whether the text of the
+ /// shortcut that opened it (Alt+Q's `q` on some platforms) is still to be dropped, and where the
 diff --git a/crates/ui-egui/src/dialogs.rs b/crates/ui-egui/src/dialogs.rs
-index 8f83ffe..660a342 100644
+index 0caadcb..012384d 100644
 --- a/crates/ui-egui/src/dialogs.rs
 +++ b/crates/ui-egui/src/dialogs.rs
-@@ -311,10 +311,6 @@ pub enum Dialog {
+@@ -313,10 +313,6 @@ pub enum Dialog {
          #[serde(skip)]
          note: String,
      },
@@ -431,7 +449,7 @@ index 8f83ffe..660a342 100644
      /// Confirm before deleting a recovery copy.
      DiscardRecovery {
          id: String,
-@@ -524,7 +520,7 @@ impl Dialog {
+@@ -528,7 +524,7 @@ impl Dialog {
              Dialog::Refs(d) => d.name(),
              Dialog::Icons { .. } => "icons",
              Dialog::PasteSpecial { .. } => "pasteSpecial",
@@ -440,7 +458,7 @@ index 8f83ffe..660a342 100644
              Dialog::SaveChanges { .. } => "saveChanges",
              Dialog::DiscardRecovery { .. } => "discardRecovery",
              Dialog::RecipientList { .. } => "recipientList",
-@@ -772,10 +768,7 @@ impl Dialog {
+@@ -780,10 +776,7 @@ impl Dialog {
              }
              "pasteSpecial" => Dialog::paste_special(app, &json!({})),
              "renameDocument" => Dialog::RenameDocument { name: app.title_stem(), message: String::new(), focus: true },
@@ -479,7 +497,7 @@ index d976263..1d2997e 100644
          assert!(category.starts_with("الفئة") && series.starts_with("السلسلة"), "{category:?} {series:?}");
          for name in [category, series] {
 diff --git a/crates/ui-egui/src/dialogs/dispatch.rs b/crates/ui-egui/src/dialogs/dispatch.rs
-index 4278efa..dbb0d8f 100644
+index ae4fca4..8d76478 100644
 --- a/crates/ui-egui/src/dialogs/dispatch.rs
 +++ b/crates/ui-egui/src/dialogs/dispatch.rs
 @@ -39,7 +39,7 @@ pub(super) fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
@@ -491,7 +509,7 @@ index 4278efa..dbb0d8f 100644
          Dialog::DiscardRecovery { .. } => discard_recovery_dialog(app, ui, d),
          Dialog::SaveChanges { .. } => save_changes_dialog(app, ui, d),
          Dialog::RecipientList { fields, rows, message, filter } => recipient_list(app, ui, fields, rows, message, filter),
-@@ -1129,37 +1129,6 @@ fn paste_special_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool
+@@ -1156,37 +1156,6 @@ fn paste_special_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool
      ok || cancel
  }
  
@@ -500,7 +518,7 @@ index 4278efa..dbb0d8f 100644
 -        return false;
 -    };
 -    ui.set_width(820.0);
--    let names = ["About", "Contributors", "Models", "Language data"].map(|n| tl!(n).to_string());
+-    let names = [tl!("About").to_string(), tl!("Contributors").to_string(), tl!("Models").to_string(), tl!("Language data").to_string()];
 -    if let Some(i) = crate::widgets::dialog_tabs(ui, &names, *tab as usize) {
 -        *tab = i as u8;
 -    }
@@ -530,10 +548,10 @@ index 4278efa..dbb0d8f 100644
      let Dialog::DiscardRecovery { name, .. } = d else {
          return false;
 diff --git a/crates/ui-egui/src/dialogs/tests.rs b/crates/ui-egui/src/dialogs/tests.rs
-index 184f9a3..1883536 100644
+index 7cdb914..78d647f 100644
 --- a/crates/ui-egui/src/dialogs/tests.rs
 +++ b/crates/ui-egui/src/dialogs/tests.rs
-@@ -275,7 +275,7 @@ fn command_search_respects_turkish_i_pairs_and_keeps_canonical_matches() {
+@@ -297,7 +297,7 @@ fn command_search_respects_turkish_i_pairs_and_keeps_canonical_matches() {
      crate::i18n::set_current(crate::i18n::fixture_lang("x-fixture", LABELS));
      assert!(!command_matches(italic, "italik"), "İ lowercases to i plus a combining dot");
      assert_eq!(crate::i18n::lowercase("Iİıi"), "ii\u{307}ıi");
@@ -566,10 +584,10 @@ index 0000000..f26db5b
 +#[cfg(not(target_arch = "wasm32"))]
 +pub fn read_only() -> Option<bool> { None }
 diff --git a/crates/ui-egui/src/keytips.rs b/crates/ui-egui/src/keytips.rs
-index 1c092e6..84b99b0 100644
+index 47b4c6b..fe4bf27 100644
 --- a/crates/ui-egui/src/keytips.rs
 +++ b/crates/ui-egui/src/keytips.rs
-@@ -392,7 +392,7 @@ fn controls(tab: &str) -> Vec<Control> {
+@@ -395,7 +395,7 @@ fn controls(tab: &str) -> Vec<Control> {
              c("Full Screen", "view.fullScreen"),
              c("Macros", "tools.macros"),
          ],
@@ -579,7 +597,7 @@ index 1c092e6..84b99b0 100644
              vec![m("Shading", "table.shading"), m("Borders", "table.borders"), c("Border Painter", "table.borderPainter")]
          }
 diff --git a/crates/ui-egui/src/lib.rs b/crates/ui-egui/src/lib.rs
-index 3c11561..d315864 100644
+index 516852f..2476cc1 100644
 --- a/crates/ui-egui/src/lib.rs
 +++ b/crates/ui-egui/src/lib.rs
 @@ -33,7 +33,6 @@ pub mod chrome;
@@ -614,6 +632,18 @@ index 3c11561..d315864 100644
              author: None,
              window: None,
              language: i18n::AUTO.into(),
+diff --git a/crates/ui-egui/src/options.rs b/crates/ui-egui/src/options.rs
+index 43d5216..79e5ca5 100644
+--- a/crates/ui-egui/src/options.rs
++++ b/crates/ui-egui/src/options.rs
+@@ -249,7 +249,6 @@ fn general(app: &mut WordApp, ui: &mut Ui) {
+     {
+         let _ = app.run("view.darkMode", json!({"value": dark_page}));
+     }
+-    ui.checkbox(&mut app.ui.show_discord, tl!("Show the community button in the title bar"));
+     default_app_button(app, ui);
+     ui.add_space(8.0);
+     section(ui, "Start-up");
 diff --git a/crates/ui-egui/src/ribbon.rs b/crates/ui-egui/src/ribbon.rs
 index 66eccdd..9b59776 100644
 --- a/crates/ui-egui/src/ribbon.rs
@@ -659,6 +689,36 @@ index 663e71e..a76cd60 100644
      });
      group(ui, "Agents", None, app, |ui, app| {
          big(ui, app, "macros", "Commands", "ui.dialog", json!({"name": "commands"}), false);
+diff --git a/crates/ui-egui/src/tests.rs b/crates/ui-egui/src/tests.rs
+index 9d9af6b..5b7d902 100644
+--- a/crates/ui-egui/src/tests.rs
++++ b/crates/ui-egui/src/tests.rs
+@@ -590,25 +590,6 @@ fn title_and_account_buttons_work() {
+     assert!(h.query_by_label("User name:").is_some());
+ }
+ 
+-/// The Options toggle hides the community pill in the title bar; the backstage menu's
+-/// Discord link hides with it — one setting, everywhere the link shows.
+-#[test]
+-fn the_community_button_off_hides_the_backstage_discord_link_too() {
+-    use egui_kittest::kittest::Queryable;
+-    let mut a = app();
+-    a.run("ui.backstage", json!({"value": true})).unwrap();
+-    let mut h = harness(a);
+-    h.run_steps(2);
+-    assert!(h.query_by_label("Discord community").is_some(), "the community link shows by default");
+-
+-    let mut a = app();
+-    a.ui.show_discord = false;
+-    a.run("ui.backstage", json!({"value": true})).unwrap();
+-    let mut h = harness(a);
+-    h.run_steps(2);
+-    assert!(h.query_by_label("Discord community").is_none(), "the backstage link honors the same setting");
+-}
+-
+ /// File › Options › Advanced › Editing: alignment guides are a UI command, on by default and
+ /// kept between runs.
+ #[test]
 diff --git a/crates/ui-egui/src/window_ui.rs b/crates/ui-egui/src/window_ui.rs
 index f23ded2..bf44ad0 100644
 --- a/crates/ui-egui/src/window_ui.rs
@@ -686,15 +746,3 @@ index 0000000..3a1c4a9
 +Validation: WebAssembly release build and Folio browser import/edit/export integration tests. Android APK assembly and signature verification.
 +
 +The primary menu row is 24 logical pixels (80% of WordCraft's previous 30), with Inter 12.5 pt and semibold selection. GridCraft and DeckCraft take the same pinned, OFL Inter family as an optional build input; model and cell fonts are unchanged.
-diff --git a/crates/ui-egui/src/options.rs b/crates/ui-egui/src/options.rs
-index 85941a0..e595204 100644
---- a/crates/ui-egui/src/options.rs
-+++ b/crates/ui-egui/src/options.rs
-@@ -234,7 +234,6 @@ fn general(app: &mut WordApp, ui: &mut Ui) {
-     {
-         let _ = app.run("view.darkMode", json!({"value": dark_page}));
-     }
--    ui.checkbox(&mut app.ui.show_discord, tl!("Show the community button in the title bar"));
-     default_app_button(app, ui);
-     ui.add_space(8.0);
-     section(ui, "Start-up");

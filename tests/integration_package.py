@@ -20,7 +20,7 @@ for mode,ids in [('lucy',['pdfcraft']),('lucy',['wordcraft','gridcraft']),('lucy
  with ZipFile(result['apk']) as archive:
   engines={Path(n).parts[2] for n in archive.namelist() if n.startswith('assets/engines/') and len(Path(n).parts)>3}
   assert engines==set(ids),(engines,ids)
-  assert len([n for n in archive.namelist() if n.endswith('.wasm')])==len(ids)
+  assert all('assets/engines/'+name+'/'+name+'-web_bg.wasm' in archive.namelist() for name in ids)
   selection=json.loads(archive.read('assets/selection.json'));assert set(selection['engines'])==set(ids)
  badging=subprocess.check_output([sdk/'build-tools/36.0.0/aapt','dump','badging',result['apk']],text=True)
  assert "name='"+result['package_name']+"'" in badging

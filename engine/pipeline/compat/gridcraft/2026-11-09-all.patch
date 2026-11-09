@@ -16,10 +16,10 @@ index 2a4b5c9..5c729e3 100644
 +| `FOLIO_UI_FONT_DIR/Inter-Regular.ttf` | Rasmus Andersson | https://github.com/storytold/wordcraft/blob/9130181a5fdaee2293e67756fd5458c601489f3c/assets/fonts/Inter-Regular.ttf | OFL-1.1 (`OFL-Inter.txt`, supplied by Folio) | `40d692fce188e4471e2b3cba937be967878f631ad3ebbbdcd587687c7ebe0c82` |
 +| `FOLIO_UI_FONT_DIR/Inter-SemiBold.ttf` | Rasmus Andersson | https://github.com/storytold/wordcraft/blob/9130181a5fdaee2293e67756fd5458c601489f3c/assets/fonts/Inter-SemiBold.ttf | OFL-1.1 (`OFL-Inter.txt`, supplied by Folio) | `78a843fade9d4612a5567302fb595b56976eb5fcebf4fea5a5912d638bafcde3` |
 diff --git a/Cargo.lock b/Cargo.lock
-index dfdde30..610af9d 100644
+index 543cddf..b39b3b4 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
-@@ -2180,6 +2180,7 @@ dependencies = [
+@@ -2191,6 +2191,7 @@ dependencies = [
   "gridcraft-engine",
   "gridcraft-xlsx",
   "image",
@@ -28,7 +28,7 @@ index dfdde30..610af9d 100644
   "serde",
   "serde_json",
 diff --git a/Cargo.toml b/Cargo.toml
-index 594b292..e0a934a 100644
+index 1941c9d..05632e4 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -93,8 +93,8 @@ debug = "line-tables-only"
@@ -62,7 +62,7 @@ index 321aa30..dee18c2 100644
  </body>
  </html>
 diff --git a/apps/gridcraft-web/src/web.rs b/apps/gridcraft-web/src/web.rs
-index 2685605..4599449 100644
+index 1108c4c..2439c70 100644
 --- a/apps/gridcraft-web/src/web.rs
 +++ b/apps/gridcraft-web/src/web.rs
 @@ -75,17 +75,8 @@ pub fn start() {
@@ -86,10 +86,10 @@ index 2685605..4599449 100644
                      // and `prefs.json`; a saved language replaces the browser's.
                      let (stored_ui, stored_prefs) = (stored(crate::prefs::UI_KEY), stored(crate::prefs::PREFS_KEY));
 diff --git a/crates/ui-egui/Cargo.toml b/crates/ui-egui/Cargo.toml
-index fd18f70..c58d146 100644
+index 3ecbbbb..8ce33fe 100644
 --- a/crates/ui-egui/Cargo.toml
 +++ b/crates/ui-egui/Cargo.toml
-@@ -44,6 +44,7 @@ sys-locale = { workspace = true }
+@@ -45,6 +45,7 @@ sys-locale = { workspace = true }
  craft-window = { workspace = true }
  
  [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -474,7 +474,7 @@ index d53c5fa..fe1e121 100644
      }
  }
 diff --git a/crates/ui-egui/src/grid/cell_paint.rs b/crates/ui-egui/src/grid/cell_paint.rs
-index 187790e..e805a56 100644
+index ee03f27..cc5aa38 100644
 --- a/crates/ui-egui/src/grid/cell_paint.rs
 +++ b/crates/ui-egui/src/grid/cell_paint.rs
 @@ -12,11 +12,11 @@ pub(super) struct Look {
@@ -491,7 +491,7 @@ index 187790e..e805a56 100644
  }
  
  /// Last column of a Center Across Selection run starting at `start`: it extends over following columns (up to `limit`) while `continues` holds.
-@@ -77,11 +77,11 @@ pub(super) fn look(wb: &Workbook, si: usize, sh: &Sheet, c: CellRef, cf: &mut Cf
+@@ -80,11 +80,11 @@ pub(super) fn look(wb: &Workbook, si: usize, sh: &Sheet, c: CellRef, cf: &mut Cf
              // Patterns: approximate with a blend of foreground and background.
              let fg = style.fill.fg.resolve(&wb.theme).unwrap_or([0, 0, 0]);
              let bg = style.fill.bg.resolve(&wb.theme).unwrap_or([255, 255, 255]);
@@ -506,7 +506,7 @@ index 187790e..e805a56 100644
      };
      if let Some(l) = &cfl
 diff --git a/crates/ui-egui/src/lib.rs b/crates/ui-egui/src/lib.rs
-index e773a20..747fc22 100644
+index f2bcf3c..80990b9 100644
 --- a/crates/ui-egui/src/lib.rs
 +++ b/crates/ui-egui/src/lib.rs
 @@ -23,7 +23,6 @@ pub mod code_editor;
@@ -525,7 +525,7 @@ index e773a20..747fc22 100644
  pub mod fonts;
  pub mod form_controls;
  pub mod formula_bar;
-@@ -158,7 +158,7 @@ impl Default for UiState {
+@@ -159,7 +159,7 @@ impl Default for UiState {
              recent: vec![],
              keytip_invoke: None,
              keytip_invoke_next: None,
@@ -630,10 +630,10 @@ index f254665..7c47201 100644
 -    }
  }
 diff --git a/crates/ui-egui/src/theme.rs b/crates/ui-egui/src/theme.rs
-index 343fd79..b8cde23 100644
+index 9ebf199..4838481 100644
 --- a/crates/ui-egui/src/theme.rs
 +++ b/crates/ui-egui/src/theme.rs
-@@ -223,9 +223,9 @@ impl Tokens {
+@@ -228,9 +228,9 @@ impl Tokens {
              hover: pick(dark, Color32::from_rgb(0xEB, 0xEB, 0xEB), Color32::from_rgb(0x42, 0x42, 0x42)),
              pressed: pick(dark, Color32::from_rgb(0xDD, 0xDD, 0xDD), Color32::from_rgb(0x4D, 0x4D, 0x4D)),
              separator: pick(dark, Color32::from_rgb(0xE0, 0xE0, 0xE0), Color32::from_rgb(0x48, 0x48, 0x48)),
@@ -645,7 +645,7 @@ index 343fd79..b8cde23 100644
              header_bg: pick(dark, Color32::from_rgb(0xF8, 0xF8, 0xF8), Color32::from_rgb(0x30, 0x30, 0x30)),
              header_text: pick(dark, Color32::from_rgb(0x42, 0x42, 0x42), Color32::from_rgb(0xCC, 0xCC, 0xCC)),
              header_line: pick(dark, Color32::from_rgb(0xD6, 0xD6, 0xD6), Color32::from_rgb(0x45, 0x45, 0x45)),
-@@ -240,7 +240,7 @@ impl Tokens {
+@@ -245,7 +245,7 @@ impl Tokens {
              tab_bar: pick(dark, Color32::from_rgb(0xF3, 0xF3, 0xF3), Color32::from_rgb(0x29, 0x29, 0x29)),
              tab_active: pick(dark, Color32::WHITE, Color32::from_rgb(0x3A, 0x3A, 0x3A)),
              status_bar: pick(dark, Color32::from_rgb(0xF3, 0xF3, 0xF3), Color32::from_rgb(0x29, 0x29, 0x29)),
@@ -654,7 +654,7 @@ index 343fd79..b8cde23 100644
              menu_bg: pick(dark, Color32::WHITE, Color32::from_rgb(0x30, 0x30, 0x30)),
              shadow: pick(dark, Color32::from_black_alpha(40), Color32::from_black_alpha(90)),
              danger: pick(dark, Color32::from_rgb(0xC4, 0x2B, 0x1C), Color32::from_rgb(0xFF, 0x95, 0x85)),
-@@ -368,7 +368,7 @@ pub fn apply(ctx: &egui::Context, dark: bool) {
+@@ -373,7 +373,7 @@ pub fn apply(ctx: &egui::Context, dark: bool) {
  
  /// Model colour → egui colour.
  pub fn color32(rgb: [u8; 3]) -> Color32 {
@@ -664,10 +664,10 @@ index 343fd79..b8cde23 100644
  
  #[cfg(test)]
 diff --git a/crates/ui-egui/src/theme/font_setup.rs b/crates/ui-egui/src/theme/font_setup.rs
-index 3489b14..c0dd21b 100644
+index da995c4..8db11cb 100644
 --- a/crates/ui-egui/src/theme/font_setup.rs
 +++ b/crates/ui-egui/src/theme/font_setup.rs
-@@ -515,6 +515,7 @@ fn font_definitions_impl(language: crate::i18n::Language, used: &[String], syste
+@@ -528,6 +528,7 @@ pub(super) fn font_definitions_impl(
      // Only families egui still has data for count as bound (a dropped face can empty a chain).
      bound.retain(|f| fonts.families.get(&FontFamily::Name(f.as_str().into())).is_some_and(|c| !c.is_empty()));
      crate::fonts::set_bound(bound);
@@ -676,7 +676,7 @@ index 3489b14..c0dd21b 100644
  }
  
 diff --git a/crates/ui-egui/src/theme/tests.rs b/crates/ui-egui/src/theme/tests.rs
-index 31dc653..34347e5 100644
+index 359336e..312e458 100644
 --- a/crates/ui-egui/src/theme/tests.rs
 +++ b/crates/ui-egui/src/theme/tests.rs
 @@ -28,7 +28,7 @@ fn fallback_faces_are_appended_to_every_family() {
@@ -688,7 +688,7 @@ index 31dc653..34347e5 100644
      let expected: Vec<String> = craft_font_faces().into_iter().map(|(key, _)| key).collect();
      if expected.is_empty() {
          return; // optional input absent
-@@ -101,7 +101,7 @@ fn available_text_maps_unbundled_chrome_symbols() {
+@@ -102,7 +102,7 @@ fn available_text_maps_unbundled_chrome_symbols() {
  fn interface_families_fall_back_to_the_cell_font() {
      // Structural (#349): the formula bar, name box and dialogs draw every script the cells can,
      // so each interface chain carries the cell face, ahead of the script fallback faces.
@@ -697,8 +697,8 @@ index 31dc653..34347e5 100644
      let cell = format!("sys-{CELL}");
      if !fonts.font_data.contains_key(&cell) {
          return; // no system cell font on this machine
-@@ -128,7 +128,7 @@ fn language_reorders_only_the_han_faces() {
-         ["sys-cjk-han-zh", "sys-cjk-han-ja", "sys-cjk-hangul", "sys-thai", "sys-lao", "sys-hebrew", "sys-symbols", "sys-symbols-2"]
+@@ -129,7 +129,7 @@ fn language_reorders_only_the_han_faces() {
+         ["sys-cjk-han-zh", "sys-cjk-han-ja", "sys-cjk-hangul", "sys-thai", "sys-lao", "sys-hebrew", "sys-arabic", "sys-symbols", "sys-symbols-2"]
      );
      assert_eq!(HanOrder::of(Language::Ja), HanOrder::Japanese);
 -    for l in [Language::En, Language::Zh, Language::Ko, Language::Ru, Language::PtBr, Language::De, Language::Cs, Language::Fr, Language::Tr] {
@@ -706,7 +706,7 @@ index 31dc653..34347e5 100644
          assert_eq!(HanOrder::of(l), HanOrder::Chinese, "{l:?} shares the default order (no font rebuild)");
      }
  }
-@@ -165,7 +165,7 @@ fn cjk_fallback_probes_flatpak_fonts_with_the_correct_locale_faces() {
+@@ -166,7 +166,7 @@ fn cjk_fallback_probes_flatpak_fonts_with_the_correct_locale_faces() {
  fn fallback_faces_load_each_file_once() {
      // The region-merged Noto Sans CJK .ttc serves Japanese, Chinese and Hangul; it must be loaded
      // once, not once per script (tens of MB each).
@@ -715,7 +715,7 @@ index 31dc653..34347e5 100644
          let fonts = font_definitions_for_language(language);
          let present: Vec<&Arc<FontData>> = fallback_faces(HanOrder::of(language)).into_iter().filter_map(|(k, _)| fonts.font_data.get(k)).collect();
          for (i, a) in present.iter().enumerate() {
-@@ -199,7 +199,7 @@ fn fallback_covers_its_script() {
+@@ -201,7 +201,7 @@ fn fallback_covers_its_script() {
          // Czech interface labels: every Czech accented letter, in both cases.
          ("ui", candidates(UI), "Příliš žluťoučký kůň úpěl ďábelské ódy ŘŠČŽÝÁÍÉÚŮĚŤĎŇÓ"),
      ];
@@ -724,7 +724,7 @@ index 31dc653..34347e5 100644
          let ctx = egui::Context::default();
          ctx.set_fonts(font_definitions_for_language(language));
          let mut out = ctx.run_ui(egui::RawInput::default(), |_ui| {});
-@@ -311,7 +311,7 @@ fn macos_bold_interface_face_is_drawn_unhinted() {
+@@ -446,7 +446,7 @@ fn macos_bold_interface_face_is_drawn_unhinted() {
      // #1184: Helvetica Neue Bold's own TrueType hints close Cyrillic е into ө at 13 pt on a
      // Retina screen. Core Text never runs them, so on macOS the face goes unhinted like every
      // other app draws it; the regular face and the other platforms keep egui's default.
