@@ -1,0 +1,48 @@
+name: Check CADCraft 0.20.1 sources
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'native-cad/**'
+      - 'app/reviewed.json'
+      - 'tools/check_cad0201.py'
+      - '.github/workflows/cadcraft-check.yml'
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      PYTHONUNBUFFERED: '1'
+      CARGO_BUILD_JOBS: '2'
+      CADCRAFT_TOOLCHAIN_ROOT: ${{ github.workspace }}/native-cad/cache/toolchain
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Check constructor regressions
+        run: |
+          python3 -m unittest discover -s tests -p 'test_*.py'
+          python3 -m unittest discover -s engine/tests -p 'test_*.py'
+          python3 -m unittest discover -s native-cad/tests -p 'test_*.py'
+          node tests/reading_menu.cjs
+      - name: Install native check dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libgl1-mesa-dev
+          bash native-cad/tools/install-toolchain.sh
+      - name: Download the exact reviewed release sources
+        run: |
+          git clone --quiet --depth 1 --branch v0.20.1 https://github.com/storytold/cadcraft.git "$RUNNER_TEMP/cadcraft"
+          test "$(git -C "$RUNNER_TEMP/cadcraft" rev-parse HEAD)" = '7526dc62c14e71b3c8d46e73bbf1fa29ef506af1'
+          git -C "$RUNNER_TEMP/cadcraft" archive --format=zip --prefix=cadcraft/ --output="$RUNNER_TEMP/cadcraft.zip" HEAD
+      - name: Verify integration, ARM64 types and document-closing regressions
+        run: |
+          export RUSTUP_HOME="$CADCRAFT_TOOLCHAIN_ROOT/rustup"
+          export CARGO_HOME="$CADCRAFT_TOOLCHAIN_ROOT/cargo"
+          export RUSTUP_TOOLCHAIN=1.99.1
+          export PATH="$CARGO_HOME/bin:$PATH"
+          export ANDROID_NDK_HOME="$CADCRAFT_TOOLCHAIN_ROOT/android/android-ndk-r28c"
+          export CARGO_TARGET_DIR="$RUNNER_TEMP/cadcraft-check-target"
+          python3 -u tools/check_cad0201.py "$RUNNER_TEMP/cadcraft.zip" --check-android
