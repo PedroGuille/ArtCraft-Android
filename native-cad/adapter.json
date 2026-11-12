@@ -1716,15 +1716,21 @@
           "mode": 420
         },
         {
+          "path": "crates/render/src/screen.rs",
+          "source": "compat/release-0.20.1/crates/render/src/screen.rs",
+          "sha256": "5e83ada0cd7ff3c585824350fdfd0e81cea686a0e58df75c3503ddf54ba903cc",
+          "mode": 420
+        },
+        {
           "path": "crates/render/src/screen/blocks.rs",
           "source": "compat/release-0.20.1/crates/render/src/screen/blocks.rs",
           "sha256": "ee00b8da0b409175abb14be14fadbdcd23b830671647e516683fd3bad37ed8e1",
           "mode": 420
         },
         {
-          "path": "crates/render/src/screen.rs",
-          "source": "compat/release-0.20.1/crates/render/src/screen.rs",
-          "sha256": "5e83ada0cd7ff3c585824350fdfd0e81cea686a0e58df75c3503ddf54ba903cc",
+          "path": "crates/ui-egui/src/canvas.rs",
+          "source": "compat/release-0.20.1/crates/ui-egui/src/canvas.rs",
+          "sha256": "e4c3b0da54cd3c7971e63bf3aaa95cb08519cc519c99b6421e18380fea986c50",
           "mode": 420
         },
         {
@@ -1740,9 +1746,15 @@
           "mode": 420
         },
         {
+          "path": "crates/ui-egui/src/canvas/grid/cache.rs",
+          "source": "compat/release-0.20.1/crates/ui-egui/src/canvas/grid/cache.rs",
+          "mode": 420,
+          "sha256": "949310c786a01f074de0285170f08d92502573ba80b9fb5297c48fd2915785d6"
+        },
+        {
           "path": "crates/ui-egui/src/canvas/images.rs",
           "source": "compat/release-0.20.1/crates/ui-egui/src/canvas/images.rs",
-          "sha256": "bca6cb900ff035d9ec95dbb4d6c7c5213e70874b27ee8ba38bbe76fb77a322c7",
+          "sha256": "bcb95001cf69ff76266c1d84348efb64348be18ff55272fea15be8c3dec387b5",
           "mode": 420
         },
         {
@@ -1758,12 +1770,6 @@
           "mode": 420
         },
         {
-          "path": "crates/ui-egui/src/canvas.rs",
-          "source": "compat/release-0.20.1/crates/ui-egui/src/canvas.rs",
-          "sha256": "e4c3b0da54cd3c7971e63bf3aaa95cb08519cc519c99b6421e18380fea986c50",
-          "mode": 420
-        },
-        {
           "path": "crates/ui-egui/src/closing.rs",
           "source": "compat/release-0.20.1/crates/ui-egui/src/closing.rs",
           "sha256": "b0ee5bb42cd1921e6baf7ba3b0f43267c0f522d06a53106b51a3e3b99ec2164c",
@@ -1774,6 +1780,18 @@
           "source": "compat/release-0.20.1/crates/ui-egui/src/control.rs",
           "sha256": "68ea150dd1fb8d8e98f6a741b033913277d6076b936905d05066c099c1886aac",
           "mode": 420
+        },
+        {
+          "path": "crates/ui-egui/src/gpu/blocks/order.rs",
+          "source": "compat/release-0.20.1/crates/ui-egui/src/gpu/blocks/order.rs",
+          "mode": 420,
+          "sha256": "3bc2afd99873202488676f40ff8f02f91433dca8da0d2485cbf9c37285959e8c"
+        },
+        {
+          "path": "crates/ui-egui/src/gpu/image/tests.rs",
+          "source": "compat/release-0.20.1/crates/ui-egui/src/gpu/image/tests.rs",
+          "mode": 420,
+          "sha256": "f34998f0de0483dccbb58d693af8e0a916c804434b04e993c4fcf2735012e5bb"
         },
         {
           "path": "crates/ui-egui/src/lib.rs",

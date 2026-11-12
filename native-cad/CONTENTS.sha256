@@ -10,7 +10,7 @@ a21d4a6fdd550f166ec421b74f05f299a6c646b7a648fa7397cf8fe07a01b887  TEMPORALES-AND
 7d48dbc6f75f3a62218aabc2dff27ec2c4fcff95b4a948c16c295681f9db2ae9  UPSTREAM-ATTRIBUTION.md
 8f6f3c12b194374bb221e2a788565e1799dcf05d704f77a5cd8f09531eaa4bdd  UPSTREAM-NOTICE
 a0ba153e0d54d3d0ca8cfb3a7c31b367b057876efe4e753a200736e0743be9c8  VALIDACION.md
-e9fadaa57e2e0c454ef529f5271fb318d3f7d9e78f74af2aba1baaa5477df4bf  adapter.json
+34a26725b0282b87f3aa58c094e16198fab242874428fd9e83d5b9016fca23a0  adapter.json
 f88644af3b32e76ae2a9e68d0df31f85283831c820b66ac79257520684b5abbd  android/apps/cadcraft-android/Cargo.toml
 25b758d5eb3e551a1753233744a9462b0b6e8bcdc252c00e18bc45b478a8389f  android/apps/cadcraft-android/PERFORMANCE.md
 dc4bc9381528ad7870b5d550889d60907e9be7d5d8100998d0d5b865d33e0962  android/apps/cadcraft-android/src/jobs.rs
@@ -176,13 +176,16 @@ a1ca9164d676dac9c2d14e19dbd501459de037131ad0818e7b7ecb291d07a649  compat/release
 ee00b8da0b409175abb14be14fadbdcd23b830671647e516683fd3bad37ed8e1  compat/release-0.20.1/crates/render/src/screen/blocks.rs
 5e83ada0cd7ff3c585824350fdfd0e81cea686a0e58df75c3503ddf54ba903cc  compat/release-0.20.1/crates/render/src/screen.rs
 439044936438c0a2e387722ff0313583c5876fb00a14c40b6d6836b51366633a  compat/release-0.20.1/crates/ui-egui/src/canvas/draw.rs
+949310c786a01f074de0285170f08d92502573ba80b9fb5297c48fd2915785d6  compat/release-0.20.1/crates/ui-egui/src/canvas/grid/cache.rs
 12c625d55c39774ac7eb65177c7e3956b26f037c629212481cfd9c27a7f66347  compat/release-0.20.1/crates/ui-egui/src/canvas/grid.rs
-bca6cb900ff035d9ec95dbb4d6c7c5213e70874b27ee8ba38bbe76fb77a322c7  compat/release-0.20.1/crates/ui-egui/src/canvas/images.rs
+bcb95001cf69ff76266c1d84348efb64348be18ff55272fea15be8c3dec387b5  compat/release-0.20.1/crates/ui-egui/src/canvas/images.rs
 d346a0dd301e467b684bc64fca73cd446440073b4b658b532bde8640f8d005a4  compat/release-0.20.1/crates/ui-egui/src/canvas/list.rs
 be14f205501b18afc73baf679e16a5f796c19f6e1949c65eb2bc1a5569f522f7  compat/release-0.20.1/crates/ui-egui/src/canvas/tablet.rs
 e4c3b0da54cd3c7971e63bf3aaa95cb08519cc519c99b6421e18380fea986c50  compat/release-0.20.1/crates/ui-egui/src/canvas.rs
 b0ee5bb42cd1921e6baf7ba3b0f43267c0f522d06a53106b51a3e3b99ec2164c  compat/release-0.20.1/crates/ui-egui/src/closing.rs
 68ea150dd1fb8d8e98f6a741b033913277d6076b936905d05066c099c1886aac  compat/release-0.20.1/crates/ui-egui/src/control.rs
+3bc2afd99873202488676f40ff8f02f91433dca8da0d2485cbf9c37285959e8c  compat/release-0.20.1/crates/ui-egui/src/gpu/blocks/order.rs
+f34998f0de0483dccbb58d693af8e0a916c804434b04e993c4fcf2735012e5bb  compat/release-0.20.1/crates/ui-egui/src/gpu/image/tests.rs
 7348ee12dfd808434f8b723eede1ba872442c7981207e44d6a012bfb793d36da  compat/release-0.20.1/crates/ui-egui/src/lib.rs
 f26f25ab66ac708aad6ec6a9e080feedaf96cd1aed2ab4161b4f9a731caa9dcb  compat/release-0.20.1/crates/ui-egui/src/palettes.rs
 05637ec85a04d3bdd5aa17bd9ef077119a8049be4fa818c83da5c5f72da67a3d  compat/release-0.20.1/packaging/android/AndroidManifest.xml

@@ -484,7 +484,7 @@ mod tests {
         let ctx = egui::Context::default();
         let rect = Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(100.0, 100.0));
         let xf = Xf { rect, center: v(5.0, 5.0), scale: 10.0, twist: 0.0 };
-        let frame = |list: &impl cadcraft_render::screen::Geometry| {
+        let frame = |list: &DisplayList| {
             let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(rect), ..Default::default() }, |ui| {
                 let painter = ui.ctx().layer_painter(egui::LayerId::background()).with_clip_rect(rect);
                 draw(&painter, &xf, list);
