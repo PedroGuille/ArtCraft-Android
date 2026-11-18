@@ -43,7 +43,9 @@ La base ofimática es WordCraft 0.14.0, PDFcraft 0.17.0, GridCraft 0.15.0 y Deck
 
 Lucy Builder 2.3.2 incluye adaptadores revisados para las fuentes de WordCraft 0.15.1, PDFcraft 0.18.1, GridCraft 0.16.0, DeckCraft 0.15.0 revisadas el 9 de noviembre de 2026, y CADCraft 0.20.1 (etiqueta v0.20.1). Elegí **Versiones revisadas** para reproducir esta entrega. Se conservan las versiones base anteriores, las publicaciones y main.
 
-La actualización 2.3.2 adapta CADCraft 0.20.1 y conserva los perfiles CAD anteriores. Para comprobar las fuentes sin generar una APK: `python3 tools/check_cad0201.py cadcraft-0.20.1.zip`. Con Rust y NDK configurados, `--check-android` comprueba ARM64 y ejecuta las regresiones de cierre.
+La actualización 2.3.2 adapta CADCraft 0.20.1 y conserva los perfiles CAD anteriores. Para comprobar las fuentes sin generar una APK: `python3 tools/check_cad0201.py cadcraft-0.20.1.zip`. Con Rust y NDK configurados, `--check-android` comprueba ARM64 y ejecuta las regresiones de cierre y cambio de presentación.
+
+En CADCraft para Android, la fila inferior muestra **Modelo** y las presentaciones del dibujo. Deslizá las pestañas para recorrerlas o tocá **Lista de presentaciones** para elegir una directamente.
 
 Una revisión exacta usa su adaptador revisado. Otras fuentes prueban la integración anterior y después la revisada; si ambos fallan, detiene la compilación y muestra los archivos afectados. Nunca sustituye las fuentes nuevas por un motor antiguo. Los perfiles de idiomas mantienen sus catálogos y la caché distingue los adaptadores.
 

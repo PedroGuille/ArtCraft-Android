@@ -79,17 +79,18 @@ def check_android(source, report, work):
         ["cargo", "check", "--locked", "--target", "aarch64-linux-android", "--lib", "-p", "cadcraft-android"],
         cwd=workspace, env=env, check=True,
     )
-    # The closing regressions run headlessly on the host, including the new desktop dialog case.
-    subprocess.run(
-        ["cargo", "test", "--locked", "-p", "cadcraft-ui-egui", "closing::tests::", "--lib"],
-        cwd=source, env=env, check=True,
-    )
+    # These UI regressions run headlessly on the host without a device or GPU.
+    for tests in ("closing::tests::", "tablet::layout_tests::"):
+        subprocess.run(
+            ["cargo", "test", "--locked", "-p", "cadcraft-ui-egui", tests, "--lib"],
+            cwd=source, env=env, check=True,
+        )
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("archive", type=Path, help="Unmodified source ZIP for the v0.20.1 tag")
-    parser.add_argument("--check-android", action="store_true", help="Also check ARM64 types and run closing tests; requires Rust and NDK")
+    parser.add_argument("--check-android", action="store_true", help="Also check ARM64 types and run close/layout tests; requires Rust and NDK")
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="cad0201-check-") as temporary:
         work = Path(temporary)

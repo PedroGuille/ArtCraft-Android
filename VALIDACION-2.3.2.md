@@ -6,6 +6,8 @@ El perfil Android release-0.20.1 comprueba 71 entradas originales y aporta 29 ar
 
 La adaptación conserva el guardado asíncrono de Android y el nuevo cierre de documentos de escritorio, con regresiones para las respuestas tardías del guardado.
 
+El adaptador 1.5.1 añade la navegación táctil entre Modelo y las presentaciones, con una lista de todas las láminas para ventanas angostas. Las pruebas simulan el cambio de espacio en una tableta y el acceso a la última lámina desde una ventana estrecha.
+
 La verificación de fuentes se reproduce con `python3 tools/check_cad0201.py FUENTES.zip`. Rechaza entradas alteradas y comprueba las versiones del manifiesto Android. El workflow de comprobación ejecuta también las pruebas del constructor y la comprobación de tipos para ARM64.
 
 Esta actualización solo entrega código. No se generan APK ni Flatpak y no se ha probado en un dispositivo físico.

@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "adapter_version": "1.5.0-lucy",
+  "adapter_version": "1.5.1-lucy",
   "upstream": {
     "version": "0.14.0",
     "commit": "fbd97d432cdf36a566c0c53739481bd6f0c32b0d",
@@ -314,7 +314,7 @@
     {
       "path": "crates/ui-egui/src/tablet.rs",
       "source": "android/crates/ui-egui/src/tablet.rs",
-      "sha256": "cb86b90a9e43f433dd27a81f1a98a1308ff7da863d694d8b7e036256c5635c85",
+      "sha256": "cb27413b9906c6a7b032d2d3c617c8d5071d50e89f410480d31a21da3d785591",
       "mode": 420
     },
     {

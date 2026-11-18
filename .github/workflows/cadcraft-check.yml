@@ -37,7 +37,7 @@ jobs:
           git clone --quiet --depth 1 --branch v0.20.1 https://github.com/storytold/cadcraft.git "$RUNNER_TEMP/cadcraft"
           test "$(git -C "$RUNNER_TEMP/cadcraft" rev-parse HEAD)" = '7526dc62c14e71b3c8d46e73bbf1fa29ef506af1'
           git -C "$RUNNER_TEMP/cadcraft" archive --format=zip --prefix=cadcraft/ --output="$RUNNER_TEMP/cadcraft.zip" HEAD
-      - name: Verify integration, ARM64 types and document-closing regressions
+      - name: Verify integration, ARM64 types and tablet UI regressions
         run: |
           export RUSTUP_HOME="$CADCRAFT_TOOLCHAIN_ROOT/rustup"
           export CARGO_HOME="$CADCRAFT_TOOLCHAIN_ROOT/cargo"

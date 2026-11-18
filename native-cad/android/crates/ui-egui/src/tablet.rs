@@ -1,5 +1,6 @@
 //! Tablet controls around the same drawing engine and canvas used on the desktop.
 
+use cadcraft_engine::doc::Space;
 use egui::{Button, Modifiers, Pos2, vec2};
 use serde_json::json;
 
@@ -217,6 +218,85 @@ fn button_width(ui: &egui::Ui, text: &str) -> f32 {
     (width + 2.0 * ui.spacing().button_padding.x).max(36.0)
 }
 
+/// The tablet hides the desktop status bar, so it needs its own paper-space navigation.
+fn layout_tabs(app: &mut CadApp, ui: &mut egui::Ui, t: Tokens) {
+    let Ok(st) = app.session.state() else { return };
+    if app.ui.start_tab || st.drawing().layouts.is_empty() {
+        return;
+    }
+    let uid = st.uid;
+    // Use the displayed tab, even when editing model space through its viewport.
+    let current = app.session.layout_space();
+    let mut layouts: Vec<_> = st.drawing().layouts.iter().collect();
+    layouts.sort_by_key(|layout| layout.tab_order);
+    let tabs = std::iter::once(Space::Model).chain(layouts.into_iter().map(|l| Space::Paper(l.name.clone()))).collect::<Vec<_>>();
+    let caption = |space: &Space| match space {
+        Space::Model => crate::tl!("Model").to_string(),
+        Space::Paper(name) => name.clone(),
+    };
+    let mut switch = None;
+    egui::Panel::bottom("tablet-layout-tabs").frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(6, 0))).show(ui, |ui| {
+        let height = app.tablet_prefs.height();
+        ui.spacing_mut().interact_size.y = height;
+        ui.spacing_mut().button_padding.y = 0.0;
+        ui.push_id(uid, |ui| {
+            ui.horizontal(|ui| {
+                // Keep the full list reachable even when the tabs are scrolled or the app is narrow.
+                let list = ui.button(crate::tl!("Layout list"));
+                let above = egui::emath::RectAlign::TOP_START;
+                egui::Popup::menu(&list).align(above).align_alternatives(&[]).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(
+                    |ui| {
+                        let max_height = (ui.ctx().content_rect().height() * 0.55).min(360.0);
+                        egui::ScrollArea::vertical().max_height(max_height).show(ui, |ui| {
+                            for (i, space) in tabs.iter().enumerate() {
+                                ui.push_id(i, |ui| {
+                                    if ui.add(Button::selectable(*space == current, caption(space)).min_size(vec2(0.0, height))).clicked() {
+                                        switch = Some(space.clone());
+                                        ui.close();
+                                    }
+                                });
+                            }
+                        });
+                    },
+                );
+                egui::ScrollArea::horizontal()
+                    .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            for (i, space) in tabs.iter().enumerate() {
+                                ui.push_id(i, |ui| {
+                                    let label = caption(space);
+                                    let selected = *space == current;
+                                    let response = ui.add(Button::selectable(selected, &label).min_size(vec2(36.0, height))).on_hover_text(&label);
+                                    crate::control::record_widget(ui, &response, &label, "tab", Some(selected));
+                                    if response.clicked() {
+                                        switch = Some(space.clone());
+                                    }
+                                });
+                            }
+                        });
+                    });
+            });
+        });
+    });
+    if let Some(space) = switch.filter(|space| *space != current) {
+        let name = match &space {
+            Space::Model => "Model",
+            Space::Paper(name) => name,
+        };
+        // A draft command and any delayed finger pick belong to the previous space.
+        if app.session.prompting() {
+            app.session.cancel();
+            app.cmd.buffer.clear();
+        }
+        match app.run("layout.set", json!({ "name": name })) {
+            Ok(_) => app.canvas.set_tablet_pan(app.canvas.tablet_pan),
+            Err(error) => app.set_status(error),
+        }
+    }
+}
+
 pub fn chrome(app: &mut CadApp, ui: &mut egui::Ui) {
     app.tablet_prefs.validate();
     ui.ctx().options_mut(|o| o.input_options.max_double_click_delay = f64::from(app.tablet_prefs.double_tap_ms) / 1000.0);
@@ -385,6 +465,72 @@ pub fn chrome(app: &mut CadApp, ui: &mut egui::Ui) {
                 });
             });
     });
+    layout_tabs(app, ui, t);
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+    use cadcraft_engine::{
+        Session,
+        doc::{Drawing, Layout},
+    };
+    use egui_kittest::{Harness, kittest::Queryable};
+
+    fn drawing() -> CadApp {
+        let mut session = Session::empty();
+        let mut drawing = Drawing::new_metric();
+        drawing.layouts = (1..=8).rev().map(|n| Layout::new(&format!("OF-{n:02}_PRESENTACION"), n)).collect();
+        session.open_drawing(drawing, "Office drawing", None);
+        let mut app = CadApp::new(session, crate::Services::default());
+        configure(&mut app);
+        app.ui.start_tab = false;
+        app
+    }
+
+    #[test]
+    fn tapping_a_sheet_switches_space_without_editing_the_drawing() {
+        let mut app = drawing();
+        app.start("circle");
+        assert!(app.session.prompting());
+        let mut h = Harness::builder().with_size(vec2(1200.0, 520.0)).build_ui_state(|ui, app| layout_tabs(app, ui, Tokens::get()), app);
+        h.run_steps(3);
+        h.get_by_label("OF-01_PRESENTACION").click();
+        h.run_steps(3);
+        assert_eq!(h.state().session.layout_space(), Space::Paper("OF-01_PRESENTACION".into()));
+        assert!(!h.state().session.prompting());
+        assert!(!h.state().session.state().unwrap().is_dirty());
+        h.get_by_label("Model").click();
+        h.run_steps(3);
+        assert_eq!(h.state().session.layout_space(), Space::Model);
+    }
+
+    #[test]
+    fn the_list_reaches_the_last_sheet_in_a_narrow_window() {
+        let mut h = Harness::builder().with_size(vec2(320.0, 500.0)).build_ui_state(|ui, app| layout_tabs(app, ui, Tokens::get()), drawing());
+        h.run_steps(3);
+        h.get_by_label("Layout list").click();
+        h.run_steps(3);
+        let list_top = h.get_by_label("Layout list").rect().top();
+        let model = h.get_all_by_label("Model").find(|node| node.rect().bottom() <= list_top).expect("the Model item is visible in the list");
+        model.hover();
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: vec2(0.0, -500.0),
+            phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
+            modifiers: Modifiers::NONE,
+        });
+        h.run_steps(20);
+        let last = h
+            .get_all_by_label("OF-08_PRESENTACION")
+            .find(|node| node.rect().bottom() <= list_top)
+            .expect("the last sheet is reachable above the tab bar");
+        assert!(last.rect().right() <= 320.0);
+        last.click();
+        h.run_steps(3);
+        assert_eq!(h.state().session.layout_space(), Space::Paper("OF-08_PRESENTACION".into()));
+    }
 }
 
 #[cfg(test)]
