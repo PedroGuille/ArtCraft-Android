@@ -18,7 +18,7 @@
     "pdfcraft": "ba28458ad8bd8d8b5b83c14f643bfa8ce9592f60",
     "gridcraft": "e9addf52fe68847e6c1310fcfa5d42b7aa8b9650",
     "deckcraft": "0623b430324cf4c3d1962e6ae7885cf30c011c5e",
-    "cadcraft": "227e3c385b20129cf525775e3d9cbe78b722b3bb",
+    "cadcraft": "7526dc62c14e71b3c8d46e73bbf1fa29ef506af1",
     "photocraft": "327c4cc82e737a3e0af7c147a477126d77525495",
     "vectorcraft": "11862f61198c8f62c0b22b6c9a331cc5950ac98d",
     "lightcraft": "32d569ad5d19a6b55cf8d5c077127faa0f44a83b",
@@ -35,7 +35,7 @@
     "pdfcraft": "0.18.1",
     "gridcraft": "0.16.0",
     "deckcraft": "0.15.0",
-    "cadcraft": "0.19.0"
+    "cadcraft": "0.20.1"
   },
   "baseline_date": "2026-11-09",
   "validated_apps": [

@@ -1,5 +1,5 @@
 MODES=('reviewed','verified','release','main')
-LABELS=('Revisadas · 09/11/2026','Versiones base anteriores','Última versión publicada','Desarrollo · main de GitHub')
+LABELS=('Versiones revisadas','Versiones base anteriores','Última versión publicada','Desarrollo · main de GitHub')
 def selected_index(settings):
     if 'revision_mode' not in settings:return 0
     value=settings['revision_mode']

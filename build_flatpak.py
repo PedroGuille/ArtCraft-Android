@@ -9,7 +9,7 @@ import argparse,base64,json,os,shutil,subprocess,tempfile
 
 ROOT=Path(__file__).resolve().parent
 APP='io.github.pedroguille.LucyBuilder'
-VERSION='2.3.1'
+VERSION='2.3.2'
 
 def run(*args):subprocess.run(list(map(str,args)),check=True)
 
